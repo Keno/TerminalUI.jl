@@ -1,0 +1,353 @@
+using VT100
+import VT100: Line, Cursor, Cell
+import Base: getindex, convert
+using VT100.Flags
+using VT100.Attributes
+
+using Color
+using FixedPointNumbers
+
+typealias RGB8 RGB{Ufixed8}
+
+import Base: ==, hash
+
+immutable CellLoc
+    row::Int
+    col::Int
+end
+convert(::Type{CellLoc},t::Tuple{Int,Int}) = CellLoc(t...)
+==(x::CellLoc,y::CellLoc) = x.row == y.row && x.col == y.col
+
+immutable CellRect
+    height::Int
+    width::Int
+end
+convert(::Type{CellRect},t::Tuple{Int,Int}) = CellRect(t...)
+==(x::CellRect,y::CellRect) = x.height == y.height && x.width == y.width
+
+immutable CellBox
+    topleft::CellLoc
+    size::CellRect
+end
+==(x::CellBox, y::CellBox) = x.topleft == y.topleft && x.size == y.size
+
+
+typealias LocOrRect Union(CellLoc,CellRect)
+
+==(x::LocOrRect,y::Tuple{Int,Int}) = x == (typeof(x))(y...)
+==(x::Tuple{Int,Int},y::LocOrRect) = (typeof(y))(x...) == y
+
+getindex(x::LocOrRect,i) = x.(i)
+
+# Used to minimize the number of characters to be written.
+# The written characters themselves still have to be buffered,
+# which is done by an IOBuffer in the `render` method.
+type DoubleBufferedTerminalScreen <: Screen
+    # If this is empty, the screen state is unkown and should be cleared first
+    have::Vector{Line}
+    want::Vector{Line}
+    wantcursor::Cursor
+    # Technically these are available by looking
+    # at the above, but to be explicit, let's save
+    # it here.
+    size::CellRect
+    # For mouse tracking
+    subscreens::Vector{TrackingSubscreen}
+    topwidget::Nullable{Widget}
+    # For embedding support
+    offset::CellLoc
+    fullsize::CellRect
+end
+istracking(s::DoubleBufferedTerminalScreen) = true
+topwidget(s::DoubleBufferedTerminalScreen) = get(s.topwidget)
+subscreens(s::DoubleBufferedTerminalScreen) = s.subscreens
+
+function subscreen_for_pos(s::Screen,subscreens::Vector{TrackingSubscreen}, pos)
+    for ss in subscreens
+        if pos[1] in simple(ss).rows && pos[2] in simple(ss).cols
+            return subscreen_for_pos(ss, ss.children, translate⁻¹(ss,pos))
+        end
+    end
+    return (s, pos)
+end
+
+function add_child(s::DoubleBufferedTerminalScreen, ss::TrackingSubscreen)
+    push!(s.subscreens, ss)
+end
+
+function redraw(s::DoubleBufferedTerminalScreen, w::Widget)
+    empty!(s.subscreens)
+    s.topwidget = w
+    draw(s,w)
+end
+
+width(s::DoubleBufferedTerminalScreen) = s.size[2]
+height(s::DoubleBufferedTerminalScreen) = s.size[1]
+size(s::DoubleBufferedTerminalScreen) = s.size
+
+isfullscreen(s::DoubleBufferedTerminalScreen) = s.offset == (1,1) && s.size == s.fullsize
+
+function DoubleBufferedTerminalScreen(size; offset = (1,1), fullsize = size)
+    s = DoubleBufferedTerminalScreen(
+        Vector{Line}(),
+        Vector{Line}(),
+        Cursor(1,1),
+        size,
+        Vector{TrackingSubscreen}(),
+        Nullable{Widget}(),
+        offset,fullsize)
+    s.want = emptybuffer(s)
+    s
+end
+
+function invalidbuffer(s::DoubleBufferedTerminalScreen)
+    Line[Line(Cell[Cell(0) for _ in 1:s.size[2]]) for _ in 1:s.size[1]]
+end
+
+function emptybuffer(s::DoubleBufferedTerminalScreen)
+    Line[Line(Cell[Cell(' ') for _ in 1:s.size[2]]) for _ in 1:s.size[1]]
+end
+
+for f in (:cmove, :cmove_col, :cmove_line_up, :cmove_line_down,
+    :cmove_up, :cmove_down)
+    @eval function $(f)(s::DoubleBufferedTerminalScreen,args...)
+        s.wantcursor = $(f)(s.wantcursor,args...)
+    end
+end
+
+fresh_screen(s::DoubleBufferedTerminalScreen) = empty!(s.have)
+
+function resize!(s::DoubleBufferedTerminalScreen,size)
+    error("DoubleBufferedTerminalScreen cannot be resized. Create a new screen instead")
+end
+
+const colorlist = Dict(
+    :black      => 0,
+    :red        => 1,
+    :green      => 2,
+    :yellow     => 3,
+    :blue       => 4,
+    :magenta    => 5,
+    :cyan       => 6,
+    :white      => 7,
+    :default    => 9
+)
+
+# Will be filled in in swrite write previous color
+ascellparams(color::Nothing) = (0,RGB8(0,0,0))
+ascellparams(symbol::Symbol) = (colorlist[symbol],RGB8(0,0,0))
+ascellparams(c::ColorValue)  = (0,convert(RGB8,c))
+
+function dummycell(fg,bg,attrs = 0)
+    fg, fg_rgb = ascellparams(fg)
+    bg, bg_rgb = ascellparams(bg)
+    Cell(Char(0),0,fg,bg,attrs,fg_rgb,bg_rgb)
+end
+
+function update_cell!(line,idx,dcell,char,fg,bg)
+    oldcell = line[idx]
+    cell = Cell(dcell; content = char)
+    fg === nothing && (cell = Cell(cell; fg = oldcell.fg, fg_rgb = oldcell.fg_rgb))
+    bg === nothing && (cell = Cell(cell; bg = oldcell.bg, bg_rgb = oldcell.bg_rgb))
+    line[idx] = cell
+end
+
+function swrite(s::DoubleBufferedTerminalScreen, rows, cols, cell::Cell)
+    for r in rows
+        line = s.want[r]
+        for c in cols
+            line[c] = cell
+        end
+    end
+end
+
+function swrite(s::DoubleBufferedTerminalScreen, rows, cols, char::Char; fg = :default, bg = :default, attrs = 0)
+    if attrs & IsACS != 0
+        i = findfirst(VT100.LineDrawing,char)
+        @assert i != -1
+        char = Char(i-1)
+    end
+    dcell = dummycell(fg,bg,attrs)
+    for r in rows
+        line = s.want[r]
+        for c in cols
+            update_cell!(line,c,dcell,char,fg,bg)
+        end
+    end
+end
+function clear(s::DoubleBufferedTerminalScreen, rows, cols)
+    swrite(s, rows, cols, ' ')
+end
+
+function swrite(s::DoubleBufferedTerminalScreen, rows, cols, string::String; fg = :default, bg = :default, attrs = 0)
+    @assert attrs & IsACS == 0
+    dcell = dummycell(fg,bg,attrs)
+    for r in rows
+        line = s.want[r]
+        for c in cols
+            for (i,char) in enumerate(string)
+                update_cell!(line,c+i-1,dcell,char,fg,bg)
+            end
+        end
+    end
+end
+
+function do_erase(buf,n)
+    if n <= 5
+        for i = 1:n
+            write(buf,' ')
+        end
+    else
+        write(buf,CSI,string(n),'X') # ECH
+        do_move(buf,n)
+    end
+end
+
+function do_clear_rect(buf,box::CellBox)
+    tl = box.topleft
+    top = tl.row
+    left = tl.col
+    bot = top + box.size.height
+    right = left + box.size.width
+
+    # For terminals that support DECERA
+    # write(buf,CSI,top,';',left,';',bot,';',right,"\$z")
+    for i in top:bot
+        do_absmove(buf,i,left)
+        write(buf,CSI,string(right-left),'X') # ECH
+    end
+end
+
+function do_absmove(buf,row,col)
+    write(buf, CSI, string(row), ';', string(col), 'H') # CUP
+end
+
+do_absmove(buf,s,row,col) = do_absmove(buf,s.offset[1]+row-1,s.offset[2]+col-1)
+
+function do_move(buf,n)
+    write(buf, CSI, string(n), 'C') # CUF
+end
+
+function change_color(buf, flags, color, rgb)
+    if flags & FG_IS_256 != 0
+        write(buf,"38;5;",string(color))
+    elseif flags & FG_IS_RGB != 0
+        write(buf,"38;2;",string(rgb.r.i),';',
+                          string(rgb.g.i),';',
+                          string(rgb.b.i))
+    else
+        write(buf,string(color))
+    end
+    write(buf,'m')
+end
+
+function change_fg_color(buf, cell)
+    write(buf,CSI,'3')
+    change_color(buf, cell.flags, cell.fg, cell.fg_rgb)
+end
+
+function change_bg_color(buf, cell)
+    write(buf,CSI,'4')
+    change_color(buf, cell.flags, cell.bg, cell.bg_rgb)
+end
+
+function change_attrs(buf, want, have)
+    if (want & IsACS) != (have & IsACS)
+        write(buf,(want & IsACS) == 0 ? "\e(B" : "\e(0")
+    end
+end
+
+function render_cell(buf,wantc,attrs)
+    (wantc.bg != attrs.bg || wantc.bg_rgb != attrs.bg_rgb) && change_bg_color(buf,wantc)
+    (wantc.fg != attrs.fg || wantc.fg_rgb != attrs.fg_rgb) && change_fg_color(buf,wantc)
+    (wantc.attrs != attrs.attrs) && change_attrs(buf,wantc.attrs,attrs.attrs)
+    write(buf,wantc.content)
+    wantc
+end
+
+same_attributes(havec,wantc) = Cell(havec; content = '\0') == Cell(wantc; content = '\0')
+
+function render(s::DoubleBufferedTerminalScreen)
+    buf = IOBuffer()
+    # For now use a cell to hold the attributestate
+    attributestate = dummycell(:default,:default)
+    full = isfullscreen(s)
+    if !full
+        # If our subscreen extends off the screen we may have to scroll first
+        if s.offset.row + s.size.height > s.fullsize.height
+            difference = s.offset.row + s.size.height-s.fullsize.height
+            write(buf,CSI,string(difference),'S')
+            s.offset = CellLoc(s.offset.row-difference,s.offset.col)
+        end
+    end
+    change_fg_color(buf,attributestate)
+    change_bg_color(buf,attributestate)
+    # Make sure everything gets reset
+    change_attrs(buf,0,0xFF)
+    if isempty(s.have)
+        s.have = emptybuffer(s)
+        if full
+            write(buf,CSI,'H',CSI,"2J")
+        else
+            do_clear_rect(buf,CellBox(s.offset,s.size))
+        end
+    end
+    for (row,(havel,wantl)) in enumerate(zip(s.have,s.want))
+        didmoverow = false
+        nerase = 0
+        nmove = 0
+        # Look through the cells
+        for (j,(havec,wantc)) in enumerate(zip(havel,wantl))
+            # Update the have buffer in place
+            havel[j] = wantc
+            # Now do the rendering
+            if havec == wantc
+                if nerase != 0
+                    do_erase(buf, nerase)
+                    nerase = 0
+                end
+                nmove += 1
+                continue
+            end
+            # First we need to move to the right spot
+            if nmove != 0
+                if !didmoverow
+                    do_absmove(buf,s,row,nmove+1)
+                    didmoverow = true
+                else
+                    do_move(buf, nmove)
+                end
+                nmove = 0
+            end
+            if wantc.content == ' ' && same_attributes(wantc,attributestate)
+                # This can be handled by an erase
+                nerase += 1
+                continue
+            else
+                if !didmoverow
+                    do_absmove(buf,s,row,1)
+                    didmoverow = true
+                end
+                if nerase != 0
+                    do_erase(buf, nerase)
+                    nerase = 0
+                end
+                attributestate = render_cell(buf,wantc,attributestate)
+            end
+        end
+    end
+    buf
+end
+
+function afterembed(io::IO,s::DoubleBufferedTerminalScreen)
+    # Go to the line after the embedding
+    # However, if we are at the end, we might have to scroll a line
+    if s.offset.row + s.size.height == s.fullsize.height
+        write(io,CSI,"1S")
+    end
+    write(io,CSI,"$(s.offset.row + s.size.height);1H")
+end
+
+function render(io::IO,s::DoubleBufferedTerminalScreen)
+    write(io,takebuf_array(render(s)))
+end
