@@ -657,6 +657,9 @@ type WidgetREPL <: AbstractREPL
 end
 Base.REPL.reset(repl::WidgetREPL) = nothing
 Base.REPL.backend(repl::WidgetREPL) = Base.REPL.backend(repl.mi)
+Base.LineEdit.deactivate(a,b,c, ::TerminalUI.MultiLineInput) = nothing
+Base.LineEdit.activate(a,b,c, ::TerminalUI.MultiLineInput) = nothing
+Base.LineEdit.commit_changes(::TerminalUI.MultiLineInput, _) = nothing
 function Base.REPL.prepare_next(repl::WidgetREPL)
     makevisible(repl.inputarea)
 end
@@ -755,4 +758,16 @@ function refresh_multi_line(termbuf::LineEdit.TerminalBuffer,
 end
 function refresh_multi_line(w::MultiLineInput, args...)
     #invalidate(w)
+end
+
+# ImageWidget
+type ImageWidget
+    data::Vector{UInt64}
+    # Screen char if allocated
+    screenchar::Cell
+    ctx::WidgetContext
+end
+
+function draw(s::Screen,img::ImageWidget)
+    
 end

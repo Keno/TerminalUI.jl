@@ -4,6 +4,8 @@ import Base: getindex, convert
 using VT100.Flags
 using VT100.Attributes
 
+import VT100: get_image_cell, pos_for_image_cell
+
 using Color
 using FixedPointNumbers
 
@@ -54,6 +56,8 @@ type DoubleBufferedTerminalScreen <: Screen
     # For mouse tracking
     subscreens::Vector{TrackingSubscreen}
     topwidget::Nullable{Widget}
+    # For iterm2 image support
+    images::Vector{Tuple{Vector{Uint8},CellRect}}
     # For embedding support
     offset::CellLoc
     fullsize::CellRect
@@ -61,6 +65,11 @@ end
 istracking(s::DoubleBufferedTerminalScreen) = true
 topwidget(s::DoubleBufferedTerminalScreen) = get(s.topwidget)
 subscreens(s::DoubleBufferedTerminalScreen) = s.subscreens
+
+function allocate_char_for_image(s::DoubleBufferedTerminalScreen, data::Vector{Uint8}, size)
+    push!(s.images, (data, size))
+    return Cell(Char(0xF0000+length(s.images)))
+end
 
 function subscreen_for_pos(s::Screen,subscreens::Vector{TrackingSubscreen}, pos)
     for ss in subscreens
@@ -95,6 +104,7 @@ function DoubleBufferedTerminalScreen(size; offset = (1,1), fullsize = size)
         size,
         Vector{TrackingSubscreen}(),
         Nullable{Widget}(),
+        Vector{Tuple{Vector{Uint8},CellRect}}(),
         offset,fullsize)
     s.want = emptybuffer(s)
     s
@@ -175,6 +185,27 @@ function swrite(s::DoubleBufferedTerminalScreen, rows, cols, char::Char; fg = :d
         end
     end
 end
+
+function swrite_image(s::DoubleBufferedTerminalScreen, rows, cols, data::Vector{UInt8})
+    c = allocate_char_for_image(s,data,CellRect(length(rows),length(cols)))
+    for row in rows
+        line = s.want[row]
+        for col in cols
+            line[col] = get_image_cell(c,row,col)
+        end
+    end
+end
+
+function swrite_image(s::DoubleBufferedTerminalScreen, rows, cols, c::Cell)
+    @assert (c.flags & CELL_IS_IMG) != 0
+    for row in rows
+        line = s.want[r]
+        for col in cols
+            line[col] = get_image_cell(c,row,col)
+        end
+    end
+end
+
 function clear(s::DoubleBufferedTerminalScreen, rows, cols)
     swrite(s, rows, cols, ' ')
 end
@@ -267,6 +298,18 @@ end
 
 same_attributes(havec,wantc) = Cell(havec; content = '\0') == Cell(wantc; content = '\0')
 
+include("iterm2.jl")
+
+"""
+Core screen rendering functionality. Loop through the screen and update all
+the cells that have changed since the last time we wenth through (in the most
+efficient way possible).
+
+- We do images first because they need to be written out as a chunk, and it
+  is not worth the incresed complexity to go back and figure out exactly
+  which areas we'd have to reprocess.
+
+"""
 function render(s::DoubleBufferedTerminalScreen)
     buf = IOBuffer()
     # For now use a cell to hold the attributestate
@@ -292,6 +335,37 @@ function render(s::DoubleBufferedTerminalScreen)
             do_clear_rect(buf,CellBox(s.offset,s.size))
         end
     end
+    # Stage 1: Render images
+    images_to_draw = Dict{Tuple{Int,Int},Int}()
+    for (row,(havel,wantl)) in enumerate(zip(s.have,s.want))
+        for (j,(havec,wantc)) in enumerate(zip(havel,wantl))
+            if (wantc.flags & CELL_IS_IMG) == 0 ||
+                havec == wantc
+                continue
+            end
+            cur_pos = pos_for_image_cell(wantc)
+            start_pos = (row-cur_pos[1]+1,j-cur_pos[2]+1)
+            if !haskey(images_to_draw,start_pos)
+                images_to_draw[start_pos] = wantc.content - 0xF0000
+            end
+        end
+    end
+
+    for (pos,image) in images_to_draw
+        @show pos
+        data, size = s.images[image]
+        do_absmove(buf,s,pos...)
+        display_file(buf, data, height = size.height, width = size.width, inline = true)
+        #@show (pos,size)
+        for row in pos[1]:(pos[1]+size.height-1)
+            line = s.have[row]
+            for col in pos[2]:(pos[2]+size.width-1)
+                line[col] = get_image_cell(Cell(Char(image+0xF0000)),row,col)
+            end
+        end
+    end
+
+    # Stage 2: Every thing else
     for (row,(havel,wantl)) in enumerate(zip(s.have,s.want))
         didmoverow = false
         nerase = 0
@@ -324,6 +398,7 @@ function render(s::DoubleBufferedTerminalScreen)
                 nerase += 1
                 continue
             else
+                @assert (wantc.flags & CELL_IS_IMG) == 0
                 if !didmoverow
                     do_absmove(buf,s,row,1)
                     didmoverow = true

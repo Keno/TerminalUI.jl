@@ -100,6 +100,15 @@ function embed_here()
     end
 end
 
+function draw_png()
+    img = open(readbytes,"test.png")
+    TerminalUI.swrite_image(s, 1:20, 1:40, img)
+    TerminalUI.render(STDOUT,s)
+    sleep(10)
+    #redraw()
+end
+
+
 if !Base.isinteractive()
     try
         Base.reseteof(tty)
