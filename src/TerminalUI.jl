@@ -114,6 +114,7 @@ for f in (:width,:height,:size,:topscreen)
 end
 
 swrite(s::TrackingSubscreen,args...;kwargs...) = swrite(simple(s),args...; kwargs...)
+swrite_image(s::TrackingSubscreen,args...;kwargs...) = swrite_image(simple(s),args...; kwargs...)
 clear(s::TrackingSubscreen,args...) = clear(simple(s),args...)
 
 function translate(s::SimpleSubscreen, rows, cols)
@@ -141,6 +142,10 @@ end
 
 function swrite(s::SimpleSubscreen, rows, cols, char; args...)
     swrite(s.parent,translate(s,rows,cols)...,char; args...)
+end
+
+function swrite_image(s::SimpleSubscreen, rows, cols, img; args...)
+    swrite_image(s.parent,translate(s,rows,cols)..., img; args...)
 end
 
 function subscreen(s::Screen, rows, cols, widget = nothing; scroll = false)

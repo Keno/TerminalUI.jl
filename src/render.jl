@@ -58,6 +58,10 @@ type DoubleBufferedTerminalScreen <: Screen
     topwidget::Nullable{Widget}
     # For iterm2 image support
     images::Vector{Tuple{Vector{Uint8},CellRect}}
+    freelist::IntSet     # Which indicies to recycle
+    # Which indicies were dropped by the widget and can
+    # be recycled if they are no longer in the image
+    dropped::IntSet
     # For embedding support
     offset::CellLoc
     fullsize::CellRect
@@ -67,8 +71,14 @@ topwidget(s::DoubleBufferedTerminalScreen) = get(s.topwidget)
 subscreens(s::DoubleBufferedTerminalScreen) = s.subscreens
 
 function allocate_char_for_image(s::DoubleBufferedTerminalScreen, data::Vector{Uint8}, size)
-    push!(s.images, (data, size))
-    return Cell(Char(0xF0000+length(s.images)))
+    if !isempty(s.freelist)
+        idx = pop!(s.freelist)
+        s.images[idx] = (data, size)
+    else
+        push!(s.images, (data, size))
+        idx = length(s.images)
+    end
+    return Cell(Cell(Char(0xF0000+idx)), flags = CELL_IS_IMG)
 end
 
 function subscreen_for_pos(s::Screen,subscreens::Vector{TrackingSubscreen}, pos)
@@ -105,6 +115,7 @@ function DoubleBufferedTerminalScreen(size; offset = (1,1), fullsize = size)
         Vector{TrackingSubscreen}(),
         Nullable{Widget}(),
         Vector{Tuple{Vector{Uint8},CellRect}}(),
+        IntSet(), IntSet(),
         offset,fullsize)
     s.want = emptybuffer(s)
     s
@@ -188,22 +199,19 @@ end
 
 function swrite_image(s::DoubleBufferedTerminalScreen, rows, cols, data::Vector{UInt8})
     c = allocate_char_for_image(s,data,CellRect(length(rows),length(cols)))
-    for row in rows
-        line = s.want[row]
-        for col in cols
-            line[col] = get_image_cell(c,row,col)
-        end
-    end
+    swrite_image(s,rows,cols,c)
+    c
 end
 
 function swrite_image(s::DoubleBufferedTerminalScreen, rows, cols, c::Cell)
     @assert (c.flags & CELL_IS_IMG) != 0
     for row in rows
-        line = s.want[r]
+        line = s.want[row]
         for col in cols
-            line[col] = get_image_cell(c,row,col)
+            line[col] = get_image_cell(c,row-first(rows)+1,col-first(cols)+1)
         end
     end
+    c
 end
 
 function clear(s::DoubleBufferedTerminalScreen, rows, cols)
@@ -351,8 +359,10 @@ function render(s::DoubleBufferedTerminalScreen)
         end
     end
 
+    todelete = copy(s.dropped)
     for (pos,image) in images_to_draw
-        @show pos
+        # Drop this image from the todelete list if it was on there
+        pop!(todelete, image, image)
         data, size = s.images[image]
         do_absmove(buf,s,pos...)
         display_file(buf, data, height = size.height, width = size.width, inline = true)
@@ -360,9 +370,14 @@ function render(s::DoubleBufferedTerminalScreen)
         for row in pos[1]:(pos[1]+size.height-1)
             line = s.have[row]
             for col in pos[2]:(pos[2]+size.width-1)
-                line[col] = get_image_cell(Cell(Char(image+0xF0000)),row,col)
+                line[col] = get_image_cell(Cell(Char(image+0xF0000)),row-pos[1]+1,col-pos[2]+1)
             end
         end
+    end
+    for image in todelete
+        s.images[image] = (Vector{UInt8}(),CellRect(0,0))
+        pop!(s.dropped,image)
+        push!(s.freelist,image)
     end
 
     # Stage 2: Every thing else
@@ -411,6 +426,7 @@ function render(s::DoubleBufferedTerminalScreen)
             end
         end
     end
+    change_attrs(buf,0,0xFF)
     buf
 end
 

@@ -1,5 +1,5 @@
     # Imports
-import Base: start, next, done, getindex, length
+import Base: start, next, done, getindex, length, show
 import Base.LineEdit: KeyAlias, AnyDict
 
 # Defaults
@@ -10,6 +10,9 @@ keymap(w::Widget) = Dict{Any,Any}()
 isscrollable(w::Widget) = false
 scroll_up(w::Widget, it) = nothing
 scroll_down(w::Widget, it) = nothing
+mouse_release(w::Widget, pos) = nothing
+mouse_press(w::Widget, pos) = nothing
+show(io::IO, w::Widget) = print(io,typeof(w))
 
 # ScrollableWidget
 abstract ScrollableWidget <: Widget
@@ -54,24 +57,65 @@ function draw_regular(s::Screen, l::Label; fg = :default, bg = :default)
 end
 
 # SimpleSlider
-type SimpleSlider <: Widget
-    numcells::Int
-    cur::Int
+type SimpleSlider{T} <: Widget
+    min::T
+    max::T
+    val::Input{T}
+    last_sliderwidth::Int
     ctx::WidgetContext
-    SimpleSlider(numcells,cur=1) = new(numcells,cur)
+    SimpleSlider(min::T,max::T,val::T) = new(min,max,Input{T}(val),0)
 end
+optheight(s::SimpleSlider) = 1
 
+# ─';'─';'⎼
 function draw_regular(s::Screen,slider::SimpleSlider)
-    for i = 1:slider.numcells
-        if i == slider.cur
-            swrite(s,1,i,' '; bg = :green)
-        else
-            swrite(s,1,i,'-'; bg = :red)
-        end
+    textwidth = max(strwidth(repr(slider.min)),strwidth(repr(slider.max)))
+    sliderwidth = max(0,width(s)-textwidth-1)
+    fraction = ((slider.val.value - slider.min)/(slider.max - slider.min))
+    fwidth = floor(Int,fraction*sliderwidth)
+    if fwidth >= 1
+        swrite(s,1,1:(fwidth-1),'═', fg = :red)
+        swrite(s,1, fwidth+1         ,' ')
+        swrite(s,1, fwidth           ,'⬤', fg = :red)
+        swrite(s,1,(fwidth+2):sliderwidth,'═', fg = :default)
     end
+    slider.last_sliderwidth = sliderwidth
+    draw(subscreen(s,1:1,(1+sliderwidth+1):width(s)),Label(repr(slider.val.value)))
 end
 
-minbounds(slider::SimpleSlider) = (1,slider.numcells)
+function slider_inc(s::SimpleSlider)
+    step = (s.max-s.min)/s.last_sliderwidth
+    push!(s.val,min(s.val.value + step, s.max))
+    #invalidate(s)
+end
+
+function slider_dec(s::SimpleSlider)
+    step = (s.max-s.min)/s.last_sliderwidth
+    push!(s.val,max(s.val.value - step, s.min))
+    #invalidate(s)
+end
+
+function keymap(s::SimpleSlider)
+    Dict(
+    # Right Arrow
+    "\e[C" => (o...)->(slider_inc(s); invalidate(s)),
+    # Left Arrow
+    "\e[D" => (o...)->(slider_dec(s); invalidate(s))
+    )
+end
+
+function mouse_release(s::SimpleSlider, pos)
+    row, col = pos
+    if col > s.last_sliderwidth
+        push!(s.val,s.max)
+    else
+        push!(s.val,s.min + (s.max-s.min)*(col-1)/s.last_sliderwidth)
+    end
+    invalidate(s)
+end
+mouse_press(s::SimpleSlider, pos) = mouse_release(s, pos)
+scroll_up(s::SimpleSlider, _) = slider_inc(s)
+scroll_down(s::SimpleSlider, _) = slider_dec(s)
 
 # Gauge
 type Gauge{T} <: Widget
@@ -622,13 +666,6 @@ keymap(w::MultiLineInput) = AnyDict(
     # Delete
     "\e[3~" => (s,o...)->edit_delete(w),
     "^T" => (s,o...)->edit_transpose(w),
-    # Mouse Scroll
-    "\e[M" => (s,o...)->begin
-        a = read(STDIN,Char)
-        b = read(STDIN,Char)
-        c = read(STDIN,Char)
-        Main.on_click(map(x->x-32,map(Int,(a,b,c)))...)
-    end
 )
 
 Base.Terminals.beep(t::MultiLineInput) = nothing
@@ -657,7 +694,7 @@ type WidgetREPL <: AbstractREPL
 end
 Base.REPL.reset(repl::WidgetREPL) = nothing
 Base.REPL.backend(repl::WidgetREPL) = Base.REPL.backend(repl.mi)
-Base.LineEdit.deactivate(a,b,c, ::TerminalUI.MultiLineInput) = nothing
+Base.LineEdit.deactivate(a,s,c, ::TerminalUI.MultiLineInput) = s
 Base.LineEdit.activate(a,b,c, ::TerminalUI.MultiLineInput) = nothing
 Base.LineEdit.commit_changes(::TerminalUI.MultiLineInput, _) = nothing
 function Base.REPL.prepare_next(repl::WidgetREPL)
@@ -761,13 +798,21 @@ function refresh_multi_line(w::MultiLineInput, args...)
 end
 
 # ImageWidget
-type ImageWidget
-    data::Vector{UInt64}
+type ImageWidget <: Widget
+    data::Vector{UInt8}
+    optheight::Int
     # Screen char if allocated
     screenchar::Cell
     ctx::WidgetContext
+    ImageWidget() = new(Vector{UInt8}(),10,Cell(Char(0)))
 end
+optheight(w::ImageWidget) = w.optheight
 
 function draw(s::Screen,img::ImageWidget)
-    
+    clear(s)
+    if img.screenchar.content != Char(0)
+        swrite_image(s, 1:height(s), 1:width(s), img.screenchar)
+    elseif !isempty(img.data)
+        img.screenchar = swrite_image(s, 1:height(s), 1:width(s), img.data)
+    end
 end

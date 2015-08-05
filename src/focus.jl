@@ -17,7 +17,14 @@ makevisible(w::Widget) = w.ctx.visible = true
 parentwidget(w::Widget) = w.ctx.parent
 
 const root_keymap = Dict(
-    "^C" => (s,p,c) -> (return :done)
+    "^C" => (s,p,c) -> (return :done),
+    # Mouse Tracking
+    "\e[M" => (topscreen,o...)->begin
+        a = read(STDIN,Char)
+        b = read(STDIN,Char)
+        c = read(STDIN,Char)
+        dispatch_mouse(topscreen,map(x->x-32,map(Int,(a,b,c)))...)
+    end
 )
 
 function focus(s::FocusState, w::Widget)
@@ -46,7 +53,7 @@ function focus(s::FocusState, w::Widget)
     end
     append!(s.stack,newstack)
     # TODO: If this takes too long, cache intermediate results
-    s.keymap = Base.LineEdit.keymap(vcat([keymap(widget) for widget in reverse(s.stack)],[root_keymap]))
+    s.keymap = Base.LineEdit.keymap(vcat(Dict[keymap(widget) for widget in reverse(s.stack)],Dict[root_keymap]))
     s
 end
 
@@ -67,6 +74,7 @@ function invalidate(w::Widget)
 end
 
 const KEY_SCROLL = 64
+const BUTTON_RELEASE = 3
 function dispatch_mouse(topscreen::Screen, button, x, y)
     target, targetpos = subscreen_for_pos(topscreen, subscreens(topscreen), (y,x))
     targetw = topwidget(target)
@@ -76,5 +84,9 @@ function dispatch_mouse(topscreen::Screen, button, x, y)
         else
             scroll_down(targetw, targetpos)
         end
+    elseif (button & BUTTON_RELEASE) == BUTTON_RELEASE
+        mouse_release(targetw, targetpos)
+    else
+        mouse_press(targetw, targetpos)
     end
 end
