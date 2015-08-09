@@ -5,6 +5,7 @@ import Base.Terminals: width, height,
     cmove_up, cmove_down, UnixTerminal, CSI
 
 import Base: UnitRange, size
+import Base.Multimedia: display
 
 # Libuv signal support to support SIGWINCH
 import Base: wait, close, _uv_hook_close
@@ -269,5 +270,7 @@ invalidated = Input{Any}(nothing)
 include("focus.jl")
 include("render.jl")
 include("widgets.jl")
+include("inputs.jl")
+include("dialog.jl")
 
 end # module

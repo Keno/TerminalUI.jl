@@ -1,6 +1,6 @@
 using VT100
 import VT100: Line, Cursor, Cell
-import Base: getindex, convert
+import Base: getindex, convert, show
 using VT100.Flags
 using VT100.Attributes
 
@@ -69,6 +69,27 @@ end
 istracking(s::DoubleBufferedTerminalScreen) = true
 topwidget(s::DoubleBufferedTerminalScreen) = get(s.topwidget)
 subscreens(s::DoubleBufferedTerminalScreen) = s.subscreens
+show(io::IO,s::DoubleBufferedTerminalScreen) =
+    print(io,"DoubleBufferedTerminalScreen(",s.size[2],"x",s.size[1],")")
+
+function resized(s::DoubleBufferedTerminalScreen,size)
+    s.have = Vector{Line}()
+    s.want = Vector{Line}()
+    s.wantcursor = Cursor(1,1)
+    if isfullscreen(s)
+        s.size = size
+    end
+    s.fullsize = size
+    empty!(s.subscreens)
+    s.topwidget = Nullable{Widget}()
+    s.want = emptybuffer(s)
+    s
+end
+
+function clear(s::DoubleBufferedTerminalScreen)
+    s.have = Vector{Line}()
+    s.want = emptybuffer(s)
+end
 
 function allocate_char_for_image(s::DoubleBufferedTerminalScreen, data::Vector{Uint8}, size)
     if !isempty(s.freelist)
@@ -291,8 +312,16 @@ function change_bg_color(buf, cell)
 end
 
 function change_attrs(buf, want, have)
+    # If we are clearing any bits
     if (want & IsACS) != (have & IsACS)
         write(buf,(want & IsACS) == 0 ? "\e(B" : "\e(0")
+    end
+    if (have & ~want) != 0
+        write(buf,CSI,"0m")
+        have = 0
+    end
+    if (want & Bright) != 0
+        write(buf,CSI,"1m")
     end
 end
 

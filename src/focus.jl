@@ -1,8 +1,10 @@
+import Base.LineEdit: KeyAlias
+
 type FocusState
     stack::Vector{Widget}
     keymap
 end
-FocusState() = FocusState(Vector{Widget}(),Dict{Any,Any}())
+FocusState() = FocusState(Vector{Widget}(),Base.LineEdit.keymap([root_keymap]))
 
 type WidgetContext
     parent
@@ -24,7 +26,18 @@ const root_keymap = Dict(
         b = read(STDIN,Char)
         c = read(STDIN,Char)
         dispatch_mouse(topscreen,map(x->x-32,map(Int,(a,b,c)))...)
-    end
+    end,
+    "\e\x7f" => KeyAlias("\e\b"),
+    # Ctrl-Left Arrow
+    "\e[1;5D" => KeyAlias("\eb"),
+    # Ctrl-Left Arrow on rxvt
+    "\eOd" => KeyAlias("\eb"),
+    # Ctrl-Right Arrow
+    "\e[1;5C" => KeyAlias("\ef"),
+    # Ctrl-Right Arrow on rxvt
+    "\eOc" => KeyAlias("\ef"),
+    # Terminal queries
+    "\e[?" => (args...)->parse_terminal_reply(STDIN)
 )
 
 function focus(s::FocusState, w::Widget)
@@ -57,7 +70,18 @@ function focus(s::FocusState, w::Widget)
     s
 end
 
+function focus_child(w::Widget)
+    for w in children(w)
+        if focusable(w)
+            focus(w)
+            return
+        end
+    end
+    focus(w.ctx.focuss,w)
+end
+
 focus(w::Widget) = focus(w.ctx.focuss,w)
+isfocused(w::Widget) = w in w.ctx.focuss.stack
 
 function initialize!(w; ctx = WidgetContext())
     if isdefined(w,:ctx)

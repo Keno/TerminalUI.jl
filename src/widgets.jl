@@ -13,6 +13,7 @@ scroll_down(w::Widget, it) = nothing
 mouse_release(w::Widget, pos) = nothing
 mouse_press(w::Widget, pos) = nothing
 show(io::IO, w::Widget) = print(io,typeof(w))
+focusable(w::Widget) = false
 
 # ScrollableWidget
 abstract ScrollableWidget <: Widget
@@ -215,6 +216,9 @@ type ScrollableChain <: ScrollableWidget
 end
 children(s::ScrollableChain) = s.children
 optheight(s::ScrollableChain) = 20
+focusable(s::ScrollableChain) = any(map(focusable,s.children))
+focus(s::ScrollableChain) = focus_child(s)
+
 
 function next_valid(s::ScrollableChain, it)
     while element_done(s.children[it[1]],it[2])
@@ -271,6 +275,28 @@ function scroll_down(s::ScrollableChain, pos)
     set_cur_top(s, n)
 end
 
+function currently_focused(w::ScrollableChain)
+    # Search the the focus stack for our widget
+    i = findfirst(w.ctx.focuss.stack,w)
+    @assert i != 0
+    if i == length(w.ctx.focuss.stack)
+        return (0,w)
+    else
+        child = w.ctx.focuss.stack[i+1]
+        idx = findfirst(w.children,child)
+        @assert idx != 0
+        return (idx,child)
+    end
+end
+function focus_next(w::ScrollableChain)
+    focus(w.children[mod1(currently_focused(w)[1]+1,length(w.children))])
+    invalidate(w)
+end
+
+keymap(w::ScrollableChain) = Dict(
+    '\t' => (args...)->focus_next(w)
+)
+
 
 # Border
 type Border <: Widget
@@ -286,14 +312,15 @@ minheight(b::Border) = 2
 optheight(b::Border) = 2 + optheight(b.child)
 
 function draw_regular(s::Screen,b::Border)
-    swrite(s,1              ,1             ,'┌', attrs = IsACS) # Top Left
-    swrite(s,1              ,2:(width(s)-1),'─', attrs = IsACS) # Top
-    swrite(s,1              ,   width(s)   ,'┐', attrs = IsACS) # Top Right
-    swrite(s,2:(height(s)-1),1             ,'│', attrs = IsACS) # Left
-    swrite(s,2:(height(s)-1),   width(s)   ,'│', attrs = IsACS) # Right
-    swrite(s,   height(s)   ,1             ,'└', attrs = IsACS) # Bottom Left
-    swrite(s,  (height(s)  ),2:(width(s)-1),'─', attrs = IsACS) # Bot
-    swrite(s,   height(s)   ,   width(s)   ,'┘', attrs = IsACS) # Bottom Right
+    color = isfocused(b) ? :green : :default
+    swrite(s,1              ,1             ,'┌', attrs = IsACS, fg = color) # Top Left
+    swrite(s,1              ,2:(width(s)-1),'─', attrs = IsACS, fg = color) # Top
+    swrite(s,1              ,   width(s)   ,'┐', attrs = IsACS, fg = color) # Top Right
+    swrite(s,2:(height(s)-1),1             ,'│', attrs = IsACS, fg = color) # Left
+    swrite(s,2:(height(s)-1),   width(s)   ,'│', attrs = IsACS, fg = color) # Right
+    swrite(s,   height(s)   ,1             ,'└', attrs = IsACS, fg = color) # Bottom Left
+    swrite(s,  (height(s)  ),2:(width(s)-1),'─', attrs = IsACS, fg = color) # Bot
+    swrite(s,   height(s)   ,   width(s)   ,'┘', attrs = IsACS, fg = color) # Bottom Right
     # Label
     opt = optwidth(b.label)
     draw(subscreen(s,1:1,3:(min(2+opt,width(s)-1))),b.label)
@@ -325,9 +352,14 @@ type RowLayout <: Widget
     fixedwidths::Vector{Int}
     span::Int
     ctx::WidgetContext
-    RowLayout(cols,spans,fixedwidths,span) = new(cols,spans,fixedwidths,span)
+    function RowLayout(cols,spans,fixedwidths,span)
+        new(cols,spans,fixedwidths,span)
+    end
 end
 children(r::RowLayout) = r.cols
+cur_top(r::RowLayout) = map(cur_top,r.cols)
+focusable(r::RowLayout) = any(map(focusable,r.cols))
+focus(r::RowLayout) = focus_child(r)
 
 element_start(r::RowLayout) = map(element_start,r.cols)
 function element_next(r::RowLayout,i)
@@ -406,17 +438,21 @@ end
 # Just a bunch of terminal cells
 type CellDisplay <: ScrollableWidget
     rows::Vector{Vector{Cell}}
+    cur_top::Int
     ctx::WidgetContext
-    CellDisplay(rows) = new(rows)
+    CellDisplay(rows) = new(rows,1)
 end
 optheight(cd::CellDisplay) = length(cd.rows)
+cur_top(cd::CellDisplay) = cd.cur_top
 element_start(cd::CellDisplay) = 1
 element_next(cd::CellDisplay, i) = i+1
 element_done(cd::CellDisplay, i) = i > length(cd.rows)
 
 function draw_element_line(s::Screen, d::CellDisplay, row)
-    for col in 1:min(width(s),length(d.rows[row]))
-        swrite(s, row, col, d.rows[row][col])
+    ncells = min(width(s),length(d.rows[row]))
+    for col in 1:ncells
+        c = d.rows[row][col]
+        swrite(s, row, col, c)
     end
     return 1
 end
@@ -435,7 +471,7 @@ type IOBufferView <: ScrollableWidget
     draw_empty_last_line::Bool
     cur_top::UnitRange
     ctx::WidgetContext
-    function IOBufferView(buf,may_show_cursor=false,draw_empty_last_line=true)
+    function IOBufferView(buf,may_show_cursor=true,draw_empty_last_line=true)
         this = new(buf,false,may_show_cursor,draw_empty_last_line)
         this.cur_top = element_start(this)
         this
@@ -444,19 +480,28 @@ end
 optheight(view::IOBufferView) = 10
 cur_top(view::IOBufferView) = view.cur_top
 set_cur_top(view::IOBufferView, it::UnitRange) = view.cur_top = it
+focusable(view::IOBufferView) = true
 
 function didwrite(view::IOBufferView,at,nmoved)
     at = at+1
+    #@show (at,view.cur_top)
     if at < first(view.cur_top)
         # Need to move the start of the range by the number of bytes inserted
         view.cur_top = (first(view.cur_top)+nmoved):(last(view.cur_top)+nmoved)
-    elseif first(view.cur_top) <= at && (at <= last(view.cur_top) || last(view.cur_top) == -1)
+    elseif first(view.cur_top) <= at && (
+        # If we inserted into the current line
+        at <= last(view.cur_top) ||
+        # Or the buffer was empty
+        last(view.cur_top) == -1 ||
+        # Or this is the last line
+        sizeof(view.buf.data)-nmoved == last(view.cur_top))
         # Naively, we'd just have to add nmoved to the end, but we may have
         # writeen one or more newlines, so we need to look for that
         idx = findnext(view.buf.data,'\n',at)
         start = first(view.cur_top)
         view.cur_top = (start == 0 ? 1 : start):(idx == 0 ? endof(view.buf.data) : idx-1)
     end
+    #@show view.cur_top
 end
 
 buffer(view::IOBufferView) = view.buf
@@ -468,7 +513,13 @@ defocused(w::IOBufferView) = w.may_show_cursor && (w.do_show_cursor = false)
 # before next in normal application code, this is not a problem.
 element_start(view::IOBufferView) = element_next(view,0:-1)
 function element_next(view::IOBufferView, cur_range)
-    if last(cur_range) == sizeof(view.buf.data)
+    # Special case: An empty buffer with draw_empty_last_line
+    # will show an empty line with a cursor. This state is represented as 1:0
+    if view.draw_empty_last_line && isempty(view.buf.data) && cur_range == 0:-1
+        return 1:0
+    end
+    if cur_range == 1:0 || last(cur_range) == sizeof(view.buf.data) ||
+        isempty(view.buf.data)
         return 0:-1
     end
     # Cur range will have ended on the character before a \n, so the point
@@ -539,64 +590,64 @@ function draw_scroll_indicators(s::Screen, input; up = true, down = true)
     down && swrite(s,height(s), width(s), '▼', fg=:blue)
 end
 
-# MultiLineInput
+# TextInput
 # Base on LineEdit.jl's multi line input widget
-import Base.LineEdit: edit_insert, edit_backspace, edit_move_right, edit_move_left
+import Base.LineEdit: edit_insert, edit_backspace,
+    edit_move_right, edit_move_left, move_input_end, move_line_end
 
-type MultiLineInput <: ScrollableWidget
+type TextInput <: ScrollableWidget
     view::IOBufferView
-    content::Input{UTF8String}
+    on_enter::Function
+    on_done::Function
+    multiline::Bool
+    tabcomplete::Bool
+    optheight::Int
     ctx::WidgetContext
-    MultiLineInput(buf) = new(IOBufferView(buf,false),Input{UTF8String}(""))
+    TextInput(buf=IOBuffer(),multiline=false,tabcomplete=false,draw_empty_last_line=true) =
+        new(IOBufferView(buf,true,draw_empty_last_line),
+            (args...)->true,(args...)->nothing,tabcomplete,multiline,10)
 end
 
-children(i::MultiLineInput) = (i.view,)
-optheight(e::MultiLineInput) = 10
-draw(s::Screen, input::MultiLineInput) = draw(s,input.view)
+children(i::TextInput) = (i.view,)
+optheight(e::TextInput) = e.optheight
+draw(s::Screen, input::TextInput) = draw(s,input.view)
+focusable(w::TextInput) = true
+focus(w::TextInput) = focus(w.view)
 
-element_start(w::MultiLineInput)     = element_start(w.view)
-element_next(w::MultiLineInput, idx) = element_next(w.view, idx)
-element_done(w::MultiLineInput, idx) = element_done(w.view, idx)
-draw_element_line(s::Screen, w::MultiLineInput, idx) =
+element_start(w::TextInput)     = element_start(w.view)
+element_next(w::TextInput, idx) = element_next(w.view, idx)
+element_done(w::TextInput, idx) = element_done(w.view, idx)
+cur_top(w::TextInput)           = cur_top(w.view)
+draw_element_line(s::Screen, w::TextInput, idx) =
     draw_element_line(s, w.view, idx)
 
 # LineEdit support
-buffer(w::MultiLineInput) = w.view.buf
-function edit_insert(w::MultiLineInput,args...)
-    edit_insert(buffer(w),args...)
+buffer(w::TextInput) = w.view.buf
+function edit_insert(w::TextInput,args...)
+    pos = position(w.view.buf)
+    n = edit_insert(buffer(w),args...)
+    didwrite(w.view,pos,n)
     invalidate(w)
 end
-edit_backspace(w::MultiLineInput) = (edit_backspace(buffer(w)); invalidate(w))
-edit_move_left(w::MultiLineInput) = edit_move_left(buffer(w)) && invalidate(w)
-edit_move_right(w::MultiLineInput) = edit_move_right(buffer(w)) && invalidate(w)
+function edit_backspace(w::TextInput)
+    pos = position(w.view.buf)
+    edit_backspace(buffer(w))
+    didwrite(w.view, pos, -1)
+    invalidate(w)
+end
+edit_move_left(w::TextInput) = edit_move_left(buffer(w)) && invalidate(w)
+edit_move_right(w::TextInput) = edit_move_right(buffer(w)) && invalidate(w)
+move_input_end(w::TextInput) = (move_input_end(buffer(w)); invalidate(w))
+move_line_end(w::TextInput) = (move_line_end(buffer(w)); invalidate(w))
 
-keymap(w::MultiLineInput) = AnyDict(
-    # Tab
-    '\t' => (s,o...)->begin
-        buf = buffer(w)
-        # Yes, we are ignoring the possiblity
-        # the we could be in the middle of a multi-byte
-        # sequence, here but that's ok, since any
-        # whitespace we're interested in is only one byte
-        i = position(buf)
-        if i != 0
-            c = buf.data[i]
-            if c == '\n' || c == '\t' ||
-               # hack to allow path completion in cmds
-               # after a space, e.g., `cd <tab>`, while still
-               # allowing multiple indent levels
-               (c == ' ' && i > 3 && buf.data[i-1] == ' ')
-                edit_insert(w, " "^4)
-                return
-            end
-        end
-        complete_line(w)
-        invalidate(w)
-    end,
+function keymap(w::TextInput)
+    d = AnyDict(
     # Enter
     '\r' => (s,o...)->begin
         line = takebuf_string(copy(buffer(w)))
-        push!(w.content,line)
+        if w.on_enter(line)
+            w.on_done(line)
+        end
     end,
     '\n' => KeyAlias('\r'),
     # Backspace/^H
@@ -604,7 +655,6 @@ keymap(w::MultiLineInput) = AnyDict(
     127 => KeyAlias('\b'),
     # Meta Backspace
     "\e\b" => (s,o...)->edit_delete_prev_word(w),
-    "\e\x7f" => "\e\b",
     # ^D
     "^D" => (s,o...)->begin
         if buffer(s).size > 0
@@ -619,14 +669,6 @@ keymap(w::MultiLineInput) = AnyDict(
     "\eb" => (s,o...)->edit_move_word_left(w),
     # Meta F
     "\ef" => (s,o...)->edit_move_word_right(w),
-    # Ctrl-Left Arrow
-    "\e[1;5D" => "\eb",
-    # Ctrl-Left Arrow on rxvt
-    "\eOd" => "\eb",
-    # Ctrl-Right Arrow
-    "\e[1;5C" => "\ef",
-    # Ctrl-Right Arrow on rxvt
-    "\eOc" => "\ef",
     # Meta Enter
     "\e\r" => (s,o...)->(edit_insert(w, '\n')),
     "\e\n" => "\e\r",
@@ -648,28 +690,59 @@ keymap(w::MultiLineInput) = AnyDict(
         try # raise the debugger if present
             ccall(:jl_raise_debugger, Int, ())
         end
-        move_input_end(s)
-        refresh_line(s)
-        print(terminal(s), "^C\n\n")
-        transition(s, :reset)
-        refresh_line(s)
+        move_input_end(w)
+        refresh_line(w)
+        #transition(s, :reset)
+        #refresh_line(s)
+        return :done
     end,
     "^Z" => (s,o...)->(return :suspend),
     # Right Arrow
     "\e[C" => (s,o...)->edit_move_right(w),
     # Left Arrow
     "\e[D" => (s,o...)->edit_move_left(w),
-    # Up Arrow
-    "\e[A" => (s,o...)->edit_move_up(w),
-    # Down Arrow
-    "\e[B" => (s,o...)->edit_move_down(w),
     # Delete
     "\e[3~" => (s,o...)->edit_delete(w),
     "^T" => (s,o...)->edit_transpose(w),
 )
+    if w.tabcomplete
+        d['\t'] = (s,o...)->begin
+            buf = buffer(w)
+            # Yes, we are ignoring the possiblity
+            # the we could be in the middle of a multi-byte
+            # sequence, here but that's ok, since any
+            # whitespace we're interested in is only one byte
+            i = position(buf)
+            if i != 0
+                c = buf.data[i]
+                if c == '\n' || c == '\t' ||
+                   # hack to allow path completion in cmds
+                   # after a space, e.g., `cd <tab>`, while still
+                   # allowing multiple indent levels
+                   (c == ' ' && i > 3 && buf.data[i-1] == ' ')
+                    edit_insert(w, " "^4)
+                    return
+                end
+            end
+            complete_line(w)
+            invalidate(w)
+        end
+    end
 
-Base.Terminals.beep(t::MultiLineInput) = nothing
-Base.println(t::MultiLineInput) = error()
+    if w.multiline
+        merge!(d,AnyDict(
+            # Up Arrow
+            "\e[A" => (s,o...)->edit_move_up(w),
+            # Down Arrow
+            "\e[B" => (s,o...)->edit_move_down(w),
+        ))
+    end
+
+    d
+end
+
+Base.Terminals.beep(t::TextInput) = nothing
+Base.println(t::TextInput) = error()
 
 # REPLWidget
 import Base: LineEdit
@@ -694,9 +767,9 @@ type WidgetREPL <: AbstractREPL
 end
 Base.REPL.reset(repl::WidgetREPL) = nothing
 Base.REPL.backend(repl::WidgetREPL) = Base.REPL.backend(repl.mi)
-Base.LineEdit.deactivate(a,s,c, ::TerminalUI.MultiLineInput) = s
-Base.LineEdit.activate(a,b,c, ::TerminalUI.MultiLineInput) = nothing
-Base.LineEdit.commit_changes(::TerminalUI.MultiLineInput, _) = nothing
+Base.LineEdit.deactivate(a,s,c, ::TerminalUI.TextInput) = s
+Base.LineEdit.activate(a,b,c, ::TerminalUI.TextInput) = nothing
+Base.LineEdit.commit_changes(::TerminalUI.TextInput, _) = nothing
 function Base.REPL.prepare_next(repl::WidgetREPL)
     makevisible(repl.inputarea)
 end
@@ -758,7 +831,7 @@ function WidgetForREPL(repl::ModalInterface,wr::WidgetREPL)
     inputbuf = IOBuffer(b"", true, true)
     wr.historybuf = IOBuffer(b"",true,true)
     wr.historyview = IOBufferView(wr.historybuf,false,false)
-    input = MultiLineInput(inputbuf)
+    input = TextInput(inputbuf,true,true,false)
 
     mistate = LineEdit.init_state(input, repl)
 
@@ -790,10 +863,10 @@ end
 
 import Base.LineEdit: refresh_multi_line
 function refresh_multi_line(termbuf::LineEdit.TerminalBuffer,
-    w::MultiLineInput, s::LineEdit.ModeState)
+    w::TextInput, s::LineEdit.ModeState)
     #invalidate(w)
 end
-function refresh_multi_line(w::MultiLineInput, args...)
+function refresh_multi_line(w::TextInput, args...)
     #invalidate(w)
 end
 

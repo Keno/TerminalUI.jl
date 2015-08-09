@@ -45,7 +45,8 @@ b = WidgetStack([ slider, imgw, #RowLayout(gauges,[3 for i = 1:4],zeros(Int64,4)
     Border(,"REPL")])=#
 import TerminalUI: children
 TerminalUI.initialize!(b)
-TerminalUI.focus(children(children(w)[2])[2])
+#TerminalUI.focus(children(children(w)[2])[2])
+TerminalUI.focus(sl)
 s = TerminalUI.DoubleBufferedTerminalScreen(Base.size(tty))
 
 function resized(size)
@@ -62,17 +63,6 @@ function redraw(args...)
     TerminalUI.redraw(s,b)
     #@show takebuf_string(TerminalUI.render(s))
     TerminalUI.render(STDOUT,s)
-end
-
-function create_input_loop()
-    @schedule begin
-        global s
-        result = :ok
-        # eof needs to go second here, because it may block
-        while result != :done && !eof(STDIN)
-            result = Base.LineEdit.match_input(b.ctx.focuss.keymap,nothing,tty)(s,nothing)
-        end
-    end
 end
 
 function embed_here()
