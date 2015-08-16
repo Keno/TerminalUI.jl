@@ -2,6 +2,8 @@
 import Base: start, next, done, getindex, length, show
 import Base.LineEdit: KeyAlias, AnyDict
 
+export Border, ListWidget, WidgetStack, IOBufferView
+
 # Defaults
 children(w::Widget) = ()
 focused(w::Widget) = nothing
@@ -14,6 +16,8 @@ mouse_release(w::Widget, pos) = nothing
 mouse_press(w::Widget, pos) = nothing
 show(io::IO, w::Widget) = print(io,typeof(w))
 focusable(w::Widget) = false
+optheight(w::Widget) = 1
+optwidth(w::Widget) = 10
 
 # ScrollableWidget
 abstract ScrollableWidget <: Widget
@@ -54,7 +58,7 @@ end
 optwidth(l::Label) = strwidth(l.text)
 
 function draw_regular(s::Screen, l::Label; fg = :default, bg = :default)
-    swrite(s,1,1,Base._truncate_at_width_or_chars(l.text,width(s)*height(s)); fg = fg, bg = :default)
+    swrite(s,1,1,Base._truncate_at_width_or_chars(l.text,width(s)); fg = fg, bg = bg)
 end
 
 # SimpleSlider
@@ -168,10 +172,11 @@ type WidgetStack <: Widget
     widgets::Vector{Widget}
     curidx
     ctx::WidgetContext
-    WidgetStack(widgets,curidx=1) = new(widgets,curidx)
+    WidgetStack(widgets,curidx=1) = new(widgets,curidx,WidgetContext())
 end
 WidgetStack(widgets::Vector) = WidgetStack(Widget[w for w in widgets], 1)
 children(w::WidgetStack) = w.widgets
+focus(w::WidgetStack) = focus_child(w)
 
 function draw_regular(s::Screen,w::WidgetStack)
     cumheight = 0
@@ -196,7 +201,8 @@ end
 
 keymap(w::WidgetStack) = Dict(
     "\e[A"      => (s,p,c)->(update_index(w,mod1(w.curidx - 1,length(w.widgets)))),
-    "\e[B"      => (s,p,c)->(update_index(w,mod1(w.curidx + 1,length(w.widgets))))
+    "\e[B"      => (s,p,c)->(update_index(w,mod1(w.curidx + 1,length(w.widgets)))),
+    '\t'        => "\e[A"
 )
 
 # ScrollableChain
@@ -211,11 +217,11 @@ type ScrollableChain <: ScrollableWidget
                 error("Child of type $(typeof(c)) is not scrollable")
             end
         end
-        new(children,1)
+        new(children,1,WidgetContext())
     end
 end
 children(s::ScrollableChain) = s.children
-optheight(s::ScrollableChain) = 20
+optheight(s::ScrollableChain) = sum(map(optheight,s.children))
 focusable(s::ScrollableChain) = any(map(focusable,s.children))
 focus(s::ScrollableChain) = focus_child(s)
 
@@ -288,9 +294,18 @@ function currently_focused(w::ScrollableChain)
         return (idx,child)
     end
 end
-function focus_next(w::ScrollableChain)
-    focus(w.children[mod1(currently_focused(w)[1]+1,length(w.children))])
+function focus_next(w::ScrollableChain; show_invisible = false)
+    # show_visible = false, should skip over hidden, not implemented
+    next = currently_focused(w)[1]+1
+    if next > length(w.children)
+        return false
+    end
+    if show_invisible
+        makevisible(w.children[next])
+    end
+    focus(w.children[next])
     invalidate(w)
+    return true
 end
 
 keymap(w::ScrollableChain) = Dict(
@@ -303,13 +318,18 @@ type Border <: Widget
     child
     label::Label
     ctx::WidgetContext
-    Border(child,label) = new(child,label)
+    Border(child::Widget,label::Label) = new(child,label,WidgetContext())
 end
-Border(child,label::AbstractString="") = Border(child,Label(label))
+# first one is deprecated
+Border(child::Widget,label::AbstractString="") = Border(child,Label(label))
+Border(label::AbstractString,child::Widget) = Border(child,Label(label))
 children(b::Border) = (b.child,)
+focusable(b::Border) = focusable(b.child)
+focus(b::Border) = focus(b.child)
 
 minheight(b::Border) = 2
 optheight(b::Border) = 2 + optheight(b.child)
+optwidth(b::Border) = max(4 + optwidth(b.label), optwidth(b.child))
 
 function draw_regular(s::Screen,b::Border)
     color = isfocused(b) ? :green : :default
@@ -333,13 +353,14 @@ end
 type TightCentering <: Widget
     w::Widget
     ctx::WidgetContext
-    TightCentering(w) = new(w)
+    TightCentering(w) = new(w,WidgetContext())
 end
 children(t::TightCentering) = (t.w,)
+focus(t::TightCentering) = focus(t.w)
 
 function draw_regular(s::Screen, w::TightCentering)
     cw = w.w
-    bounds = minbounds(cw)
+    bounds = (optheight(cw),optwidth(cw))
     starth = div(height(s)-bounds[1],2)
     startw = div(width(s)-bounds[2],2)
     draw(subscreen(s,starth:(starth+bounds[1]),startw:(startw+bounds[2])),cw)
@@ -353,7 +374,7 @@ type RowLayout <: Widget
     span::Int
     ctx::WidgetContext
     function RowLayout(cols,spans,fixedwidths,span)
-        new(cols,spans,fixedwidths,span)
+        new(cols,spans,fixedwidths,span,WidgetContext())
     end
 end
 children(r::RowLayout) = r.cols
@@ -440,7 +461,7 @@ type CellDisplay <: ScrollableWidget
     rows::Vector{Vector{Cell}}
     cur_top::Int
     ctx::WidgetContext
-    CellDisplay(rows) = new(rows,1)
+    CellDisplay(rows) = new(rows,1,WidgetContext())
 end
 optheight(cd::CellDisplay) = length(cd.rows)
 cur_top(cd::CellDisplay) = cd.cur_top
@@ -472,7 +493,7 @@ type IOBufferView <: ScrollableWidget
     cur_top::UnitRange
     ctx::WidgetContext
     function IOBufferView(buf,may_show_cursor=true,draw_empty_last_line=true)
-        this = new(buf,false,may_show_cursor,draw_empty_last_line)
+        this = new(buf,false,may_show_cursor,draw_empty_last_line,0:0,WidgetContext())
         this.cur_top = element_start(this)
         this
     end
@@ -481,6 +502,20 @@ optheight(view::IOBufferView) = 10
 cur_top(view::IOBufferView) = view.cur_top
 set_cur_top(view::IOBufferView, it::UnitRange) = view.cur_top = it
 focusable(view::IOBufferView) = true
+
+function scroll_up(l::IOBufferView, pos)
+    it = element_next(l, l.cur_top)
+    if !element_done(l, it)
+        l.cur_top = it
+        invalidate(l)
+    end
+end
+function scroll_down(l::IOBufferView, pos)
+    if l.cur_top != element_start(l)
+        l.cur_top = element_prev(l, l.cur_top)
+        invalidate(l)
+    end
+end
 
 function didwrite(view::IOBufferView,at,nmoved)
     at = at+1
@@ -605,7 +640,8 @@ type TextInput <: ScrollableWidget
     ctx::WidgetContext
     TextInput(buf=IOBuffer(),multiline=false,tabcomplete=false,draw_empty_last_line=true) =
         new(IOBufferView(buf,true,draw_empty_last_line),
-            (args...)->true,(args...)->nothing,tabcomplete,multiline,10)
+            (args...)->true,(args...)->nothing,tabcomplete,multiline,10,
+            WidgetContext())
 end
 
 children(i::TextInput) = (i.view,)
@@ -677,11 +713,11 @@ function keymap(w::TextInput)
     "^U" => (s,o...)->edit_clear(w),
     "^K" => (s,o...)->edit_kill_line(w),
     "^Y" => (s,o...)->edit_yank(w),
-    "^A" => (s,o...)->(move_line_start(w); refresh_line(w)),
-    "^E" => (s,o...)->(move_line_end(w); refresh_line(w)),
+    "^A" => (s,o...)->(move_line_start(w); invalidate(w)),
+    "^E" => (s,o...)->(move_line_end(w); invalidate(w)),
     # Try to catch all Home/End keys
-    "\e[H"  => (s,o...)->(move_input_start(w); refresh_line(w)),
-    "\e[F"  => (s,o...)->(move_input_end(w); refresh_line(w)),
+    "\e[H"  => (s,o...)->(move_input_start(w); invalidate(w)),
+    "\e[F"  => (s,o...)->(move_input_end(w); invalidate(w)),
     #"^L" => (s,o...)->(Terminals.clear(terminal(s)); refresh_line(s)),
     "^W" => (s,o...)->edit_werase(w),
     # Meta D
@@ -691,7 +727,7 @@ function keymap(w::TextInput)
             ccall(:jl_raise_debugger, Int, ())
         end
         move_input_end(w)
-        refresh_line(w)
+        invalidate(w)
         #transition(s, :reset)
         #refresh_line(s)
         return :done
@@ -889,3 +925,75 @@ function draw(s::Screen,img::ImageWidget)
         img.screenchar = swrite_image(s, 1:height(s), 1:width(s), img.data)
     end
 end
+
+# ListWidget
+type ListWidget <: Widget
+    item::Any
+    draw_indicies::Bool
+    highlighted::Input{Any}
+    cur_top
+    ctx::WidgetContext
+    function ListWidget(item)
+        this = new(item,true,Input{Any}(start(item)),start(item),WidgetContext())
+        lift(this.highlighted) do it
+            invalidate(this)
+        end
+        this
+    end
+end
+optheight(l::ListWidget) = 10
+cur_top(l::ListWidget) = l.cur_top
+isscrollable(l::ListWidget) = true
+
+element_start(l::ListWidget) = start(l.item)
+element_next(l::ListWidget,it) = next(l.item,it)[2]
+element_prev(l::ListWidget,it) = prevind(l.item,it)
+element_done(l::ListWidget,it) = done(l.item,it)
+function draw_element_line(s::Screen, l::ListWidget, it)
+    if l.draw_indicies
+        # Try to figure out how much space we'll need for writing the index
+        lidx = endof(l.item)
+        maxwidth = strwidth(sprint(print,lidx))
+        swrite(s, 1, 1, '[')
+        swrite(s, 1, 2 + maxwidth, ']')
+        draw(subscreen(s,1:height(s),2:(2+maxwidth)),Label(sprint(print,it)))
+        s = subscreen(s,1:height(s),(4+maxwidth):width(s))
+    end
+    highlight = l.highlighted.value == it
+    clear(s)
+    if highlight
+        swrite(s, 1:height(s), 1:width(s), ' ', fg = :black, bg = :yellow)
+    end
+    draw_regular(s,Label(sprint(print,l.item[it]));
+        fg = highlight ? nothing : :default, bg = highlight ? nothing : :default)
+    1
+end
+
+function scroll_up(l::ListWidget, pos)
+    it = element_next(l, l.cur_top)
+    if !element_done(l, it)
+        l.cur_top = it
+        invalidate(l)
+    end
+end
+function scroll_down(l::ListWidget, pos)
+    if l.cur_top != element_start(l)
+        l.cur_top = element_prev(l, l.cur_top)
+        invalidate(l)
+    end
+end
+
+
+keymap(l::ListWidget) = Dict(
+    "\e[A"      => (s,p,c)->begin
+        if l.highlighted.value != element_start(l)
+            push!(l.highlighted, element_prev(l, l.highlighted.value))
+        end
+    end,
+    "\e[B"      => (s,p,c)->begin
+        it = element_next(l, l.highlighted.value)
+        if !element_done(l, it)
+            push!(l.highlighted, it)
+        end
+    end
+)

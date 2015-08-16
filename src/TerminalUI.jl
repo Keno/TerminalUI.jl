@@ -270,7 +270,7 @@ invalidated = Input{Any}(nothing)
 include("focus.jl")
 include("render.jl")
 include("widgets.jl")
-include("inputs.jl")
 include("dialog.jl")
+include("inputs.jl")
 
 end # module

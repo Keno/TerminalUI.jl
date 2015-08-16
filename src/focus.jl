@@ -7,12 +7,13 @@ end
 FocusState() = FocusState(Vector{Widget}(),Base.LineEdit.keymap([root_keymap]))
 
 type WidgetContext
-    parent
     visible::Bool
+    parent
     focuss
+    WidgetContext(visible::Bool) = new(visible)
 end
-WidgetContext() = WidgetContext(nothing,true,FocusState())
-isvisible(w::Widget) = isdefined(w,:ctx) && w.ctx !== nothing ? w.ctx.visible : true
+WidgetContext() = WidgetContext(true)
+isvisible(w::Widget) = (isdefined(w,:ctx) && w.ctx !== nothing) ? w.ctx.visible : true
 hide(w::Widget) = w.ctx.visible = false
 makevisible(w::Widget) = w.ctx.visible = true
 
@@ -37,7 +38,11 @@ const root_keymap = Dict(
     # Ctrl-Right Arrow on rxvt
     "\eOc" => KeyAlias("\ef"),
     # Terminal queries
-    "\e[?" => (args...)->parse_terminal_reply(STDIN)
+    "\e[?" => (args...)->parse_terminal_reply(STDIN),
+    # Force Redraw
+    "^L" => (topscreen,o...)->(clear(topscreen);invalidate(topscreen)),
+    # Tab
+    '\t' => nothing
 )
 
 function focus(s::FocusState, w::Widget)
@@ -83,13 +88,14 @@ end
 focus(w::Widget) = focus(w.ctx.focuss,w)
 isfocused(w::Widget) = w in w.ctx.focuss.stack
 
-function initialize!(w; ctx = WidgetContext())
-    if isdefined(w,:ctx)
+function initialize!(w; parent = nothing, focuss = FocusState())
+    if !isdefined(w,:ctx) || isdefined(w.ctx,:focuss)
         return
     end
-    w.ctx = ctx
+    w.ctx.parent = parent
+    w.ctx.focuss = focuss
     for c in children(w)
-        initialize!(c,ctx = WidgetContext(w,true,ctx.focuss))
+        initialize!(c, parent = w, focuss = focuss)
     end
 end
 
