@@ -89,6 +89,7 @@ focus(w::Widget) = focus(w.ctx.focuss,w)
 isfocused(w::Widget) = w in w.ctx.focuss.stack
 
 function initialize!(w; parent = nothing, focuss = FocusState())
+    w = value(w)
     if !isdefined(w,:ctx) || isdefined(w.ctx,:focuss)
         return
     end

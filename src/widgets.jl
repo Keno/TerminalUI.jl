@@ -1,8 +1,12 @@
-    # Imports
+# Imports
 import Base: start, next, done, getindex, length, show
 import Base.LineEdit: KeyAlias, AnyDict
+import Reactive: value, Lift
 
 export Border, ListWidget, WidgetStack, IOBufferView
+
+typealias LazyWidget Union{Widget,Lift}
+value(w::Widget) = w
 
 # Defaults
 children(w::Widget) = ()
@@ -18,6 +22,10 @@ show(io::IO, w::Widget) = print(io,typeof(w))
 focusable(w::Widget) = false
 optheight(w::Widget) = 1
 optwidth(w::Widget) = 10
+
+focusable{T<:Widget}(l::Lift{T}) = focusable(value(l))
+optheight{T<:Widget}(l::Lift{T}) = optheight(value(l))
+focus{T<:Widget}(l::Lift{T}) = focus(value(l))
 
 # ScrollableWidget
 abstract ScrollableWidget <: Widget
@@ -312,17 +320,35 @@ keymap(w::ScrollableChain) = Dict(
     '\t' => (args...)->focus_next(w)
 )
 
+child_ok(w::Widget) = true
+child_ok{T}(w::Lift{T}) = T <: Widget
+
+init_child(w::Widget,this::Widget) = nothing
+function init_child{T<:Widget}(child::Lift{T},this::Widget)
+    lift(child) do w
+        w.ctx.parent = this
+        if isdefined(this.ctx,:focuss)
+            w.ctx.focuss = this.ctx.focuss
+        end
+        invalidate(this)
+        nothing
+    end
+    this
+end
 
 # Border
 type Border <: Widget
-    child
+    child::LazyWidget
     label::Label
     ctx::WidgetContext
-    Border(child::Widget,label::Label) = new(child,label,WidgetContext())
+    function Border(child::LazyWidget,label::Label)
+        @assert child_ok(child)
+        init_child(child,new(child,label,WidgetContext()))
+    end
 end
 # first one is deprecated
-Border(child::Widget,label::AbstractString="") = Border(child,Label(label))
-Border(label::AbstractString,child::Widget) = Border(child,Label(label))
+Border(child::LazyWidget,label::AbstractString="") = Border(child,Label(label))
+Border(label::AbstractString,child::LazyWidget) = Border(child,Label(label))
 children(b::Border) = (b.child,)
 focusable(b::Border) = focusable(b.child)
 focus(b::Border) = focus(b.child)
@@ -345,7 +371,7 @@ function draw_regular(s::Screen,b::Border)
     opt = optwidth(b.label)
     draw(subscreen(s,1:1,3:(min(2+opt,width(s)-1))),b.label)
     # Child
-    draw(subscreen(s,2:(height(s)-1),2:(width(s)-1), b.child; scroll = true),b.child)
+    draw(subscreen(s,2:(height(s)-1),2:(width(s)-1), value(b.child); scroll = true),value(b.child))
 end
 
 # TightCentering
