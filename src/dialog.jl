@@ -48,7 +48,7 @@ function create_input_loop(focuss,tty,s)
 end
 
 
-function wait(i::Union(FullScreenDialog,InlineDialog))
+function wait(i::Union{FullScreenDialog,InlineDialog})
     full = isa(i,FullScreenDialog)
     TerminalUI.initialize!(i.w)
     local s
@@ -76,6 +76,7 @@ function wait(i::Union(FullScreenDialog,InlineDialog))
         focus(i.w)
         lift(size->(resized(s,size); do_redraw()),monitor_resize(i.tty))
         lift(w->do_redraw(),TerminalUI.invalidated)
+        lift((args...)->render(i.tty.out_stream,s),TerminalUI.invalidated2)
         wait(t)
         afterembed(i.tty.out_stream,s)
     catch e
@@ -89,6 +90,6 @@ function wait(i::Union(FullScreenDialog,InlineDialog))
     end
 end
 
-function close(d::Union(FullScreenDialog,InlineDialog))
+function close(d::Union{FullScreenDialog,InlineDialog})
     istaskdone(d.t) || Base.throwto(d.t,InterruptException())
 end

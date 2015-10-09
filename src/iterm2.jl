@@ -15,7 +15,7 @@ function prepare_display_file(buf;filename="Unnamed file", size=nothing, width=n
     write(buf,q)
 end
 
-function display_file(buf,data::Vector{Uint8}; kwargs...)
+function display_file(buf,data::Vector{UInt8}; kwargs...)
     prepare_display_file(buf;kwargs...)
     write(buf,base64encode(data))
     write(buf,'\a')

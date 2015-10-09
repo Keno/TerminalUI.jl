@@ -1,3 +1,5 @@
+VERSION >= v"0.4.0-dev+6641" && __precompile__()
+
 module TerminalUI
 
 import Base.Terminals: width, height,
@@ -266,6 +268,7 @@ function parse_terminal_reply(stream)
 end
 
 invalidated = Input{Any}(nothing)
+invalidated2 = Input{Any}(nothing)
 
 include("focus.jl")
 include("render.jl")

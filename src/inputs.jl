@@ -16,19 +16,19 @@ function on_done(f::Function,i::Query{Int})
 end
 
 
-function call(::Type{Query{String}})
+function call(::Type{Query{AbstractString}})
     t = TextInput()
     t.optheight = 1
-    Query{String}(t)
+    Query{AbstractString}(t)
 end
-on_done(f::Function,i::Query{String}) = i.w.on_done = f
+on_done(f::Function,i::Query{AbstractString}) = i.w.on_done = f
 
 function display(d::REPLDisplay, w::Widget)
     wait(InlineDialog(w,d.repl.t))
 end
 
 immutable Question
-    text::String
+    text::AbstractString
     input::Query
 end
 
@@ -99,7 +99,7 @@ end
 answers(f::Form) = f.answers
 
 make_widget(w::Widget) = w
-make_widget(s::String) = Label(s)
+make_widget(s::AbstractString) = Label(s)
 function make_widget(a::Array)
     if ndims(a) == 1
         ScrollableChain(map(make_widget,a))

@@ -34,7 +34,7 @@ end
 ==(x::CellBox, y::CellBox) = x.topleft == y.topleft && x.size == y.size
 
 
-typealias LocOrRect Union(CellLoc,CellRect)
+typealias LocOrRect Union{CellLoc,CellRect}
 
 ==(x::LocOrRect,y::Tuple{Int,Int}) = x == (typeof(x))(y...)
 ==(x::Tuple{Int,Int},y::LocOrRect) = (typeof(y))(x...) == y
@@ -57,7 +57,7 @@ type DoubleBufferedTerminalScreen <: Screen
     subscreens::Vector{TrackingSubscreen}
     topwidget::Nullable{Widget}
     # For iterm2 image support
-    images::Vector{Tuple{Vector{Uint8},CellRect}}
+    images::Vector{Tuple{Vector{UInt8},CellRect}}
     freelist::IntSet     # Which indicies to recycle
     # Which indicies were dropped by the widget and can
     # be recycled if they are no longer in the image
@@ -91,7 +91,12 @@ function clear(s::DoubleBufferedTerminalScreen)
     s.want = emptybuffer(s)
 end
 
-function allocate_char_for_image(s::DoubleBufferedTerminalScreen, data::Vector{Uint8}, size)
+function invalidate(s::DoubleBufferedTerminalScreen)
+    s.have = Vector{Line}()
+    push!(invalidated2,s)
+end
+
+function allocate_char_for_image(s::DoubleBufferedTerminalScreen, data::Vector{UInt8}, size)
     if !isempty(s.freelist)
         idx = pop!(s.freelist)
         s.images[idx] = (data, size)
@@ -135,7 +140,7 @@ function DoubleBufferedTerminalScreen(size; offset = (1,1), fullsize = size)
         size,
         Vector{TrackingSubscreen}(),
         Nullable{Widget}(),
-        Vector{Tuple{Vector{Uint8},CellRect}}(),
+        Vector{Tuple{Vector{UInt8},CellRect}}(),
         IntSet(), IntSet(),
         offset,fullsize)
     s.want = emptybuffer(s)
@@ -176,7 +181,7 @@ const colorlist = Dict(
 )
 
 # Will be filled in in swrite write previous color
-ascellparams(color::Nothing) = (0,RGB8(0,0,0))
+ascellparams(color::Void) = (0,RGB8(0,0,0))
 ascellparams(symbol::Symbol) = (colorlist[symbol],RGB8(0,0,0))
 ascellparams(c::ColorValue)  = (0,convert(RGB8,c))
 
@@ -239,7 +244,8 @@ function clear(s::DoubleBufferedTerminalScreen, rows, cols)
     swrite(s, rows, cols, ' ')
 end
 
-function swrite(s::DoubleBufferedTerminalScreen, rows, cols, string::String; fg = :default, bg = :default, attrs = 0)
+function swrite(s::DoubleBufferedTerminalScreen, rows, cols, string::AbstractString;
+        fg = :default, bg = :default, attrs = 0)
     @assert attrs & IsACS == 0
     dcell = dummycell(fg,bg,attrs)
     for r in rows

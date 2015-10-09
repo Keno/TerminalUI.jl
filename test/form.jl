@@ -1,8 +1,8 @@
 using TerminalUI
 
 myform = form(Pair[
-     :name => ask("Enter your name:", String),
-     :address => ask("Enter your address:", String),
+     :name => ask("Enter your name:", AbstractString),
+     :address => ask("Enter your address:", AbstractString),
      :age => ask("Enter your age:", Int)
    ],style = :incremental)
 

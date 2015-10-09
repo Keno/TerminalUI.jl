@@ -160,7 +160,7 @@ type CheckBox <: Widget
     ctx::WidgetContext
     CheckBox(checked,label,highlighted) = new(checked,label,highlighted)
 end
-CheckBox(s::String) = CheckBox(false,Label(s),false)
+CheckBox(s::AbstractString) = CheckBox(false,Label(s),false)
 focused(c::CheckBox) = c.highlighted = true
 defocused(c::CheckBox) = c.highlighted = false
 
@@ -323,7 +323,7 @@ keymap(w::ScrollableChain) = Dict(
 child_ok(w::Widget) = true
 child_ok{T}(w::Lift{T}) = T <: Widget
 
-init_child(w::Widget,this::Widget) = nothing
+init_child(w::Widget,this::Widget) = this
 function init_child{T<:Widget}(child::Lift{T},this::Widget)
     lift(child) do w
         w.ctx.parent = this
@@ -333,7 +333,7 @@ function init_child{T<:Widget}(child::Lift{T},this::Widget)
         invalidate(this)
         nothing
     end
-    this
+    return this
 end
 
 # Border
@@ -614,27 +614,39 @@ element_done(view::IOBufferView,range) = range == 0:-1
 #   C) Position the actual cursor correctly
 function draw_element_line(s::Screen, input::IOBufferView, offsets)
     cols = width(s)
-    text = UTF8String(buffer(input).data)
-    curs_pos = position(buffer(input))+1
+    buf = buffer(input)
+    text = UTF8String(buf.data)
+    buf_pos = position(buf)
+    curs_pos = buf_pos+1
     row = 1
     col = 1
     offset = first(offsets)
     justwrapped = false
-    while offset <= last(offsets) && text[offset] != '\n'
+    em = LineEmulator(Cell(Cell('\0'),fg=9,bg=9))
+    seek(buf,first(offsets)-1)
+    while position(buf)+1 <= last(offsets) && text[position(buf)+1] != '\n'
         iscurs = (offset == curs_pos) && input.do_show_cursor
-        c = text[offset]
-        swrite(s, row, col, c,
-            fg = iscurs ? :black : :default,
-            bg = iscurs ? :white : :default)
-        justwrapped = false
-        col += 1
+        #@assert !iscurs
+        c = parse_cell!(em,buf)
+        if (c.content == '\0') || position(buf)+1 > last(offsets)
+            break
+        end
+        # For now, just consider a tabstop every 4 cells
+        if c.content == '\t'
+            nexttab = 4*(div(col-1,4)+1)+1
+            swrite(s, row, col:(nexttab-1), Cell(c,content=' '))
+            col = nexttab
+        else
+            swrite(s, row, col, c)
+            col += 1
+        end
         if col == cols+1
             row = row + 1
             col = 1
             justwrapped = true
         end
-        offset = nextind(text,offset)
     end
+    seek(buffer(input),buf_pos)
     lastoffset = offset
     ((offset <= last(offsets) && text[offset] == '\n') ||
         (offset > endof(text))) && (offset += 1)
@@ -810,6 +822,10 @@ Base.println(t::TextInput) = error()
 import Base: LineEdit
 import Base.LineEdit: ModalInterface
 import Base.REPL: AbstractREPL, MIRepl
+
+if !isdefined(Base.REPL,:MIRepl)
+    const MIRepl = Base.REPL.LineEditREPL
+end
 
 #=
 type REPLWidget
