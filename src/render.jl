@@ -6,7 +6,7 @@ using VT100.Attributes
 
 import VT100: get_image_cell, pos_for_image_cell
 
-using Color
+using Colors
 using FixedPointNumbers
 
 typealias RGB8 RGB{Ufixed8}
@@ -183,7 +183,7 @@ const colorlist = Dict(
 # Will be filled in in swrite write previous color
 ascellparams(color::Void) = (0,RGB8(0,0,0))
 ascellparams(symbol::Symbol) = (colorlist[symbol],RGB8(0,0,0))
-ascellparams(c::ColorValue)  = (0,convert(RGB8,c))
+ascellparams(c::Color)  = (0,convert(RGB8,c))
 
 function dummycell(fg,bg,attrs = 0)
     fg, fg_rgb = ascellparams(fg)

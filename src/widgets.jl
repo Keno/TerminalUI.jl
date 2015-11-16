@@ -1,11 +1,10 @@
 # Imports
 import Base: start, next, done, getindex, length, show
 import Base.LineEdit: KeyAlias, AnyDict
-import Reactive: value, Lift
 
 export Border, ListWidget, WidgetStack, IOBufferView
 
-typealias LazyWidget Union{Widget,Lift}
+typealias LazyWidget Union{Widget,Signal}
 value(w::Widget) = w
 
 # Defaults
@@ -23,9 +22,9 @@ focusable(w::Widget) = false
 optheight(w::Widget) = 1
 optwidth(w::Widget) = 10
 
-focusable{T<:Widget}(l::Lift{T}) = focusable(value(l))
-optheight{T<:Widget}(l::Lift{T}) = optheight(value(l))
-focus{T<:Widget}(l::Lift{T}) = focus(value(l))
+focusable{T<:Widget}(l::Signal{T}) = focusable(value(l))
+optheight{T<:Widget}(l::Signal{T}) = optheight(value(l))
+focus{T<:Widget}(l::Signal{T}) = focus(value(l))
 
 # ScrollableWidget
 abstract ScrollableWidget <: Widget
@@ -73,10 +72,10 @@ end
 type SimpleSlider{T} <: Widget
     min::T
     max::T
-    val::Input{T}
+    val::Signal{T}
     last_sliderwidth::Int
     ctx::WidgetContext
-    SimpleSlider(min::T,max::T,val::T) = new(min,max,Input{T}(val),0)
+    SimpleSlider(min::T,max::T,val::T) = new(min,max,Signal(T, val),0)
 end
 optheight(s::SimpleSlider) = 1
 
@@ -321,10 +320,10 @@ keymap(w::ScrollableChain) = Dict(
 )
 
 child_ok(w::Widget) = true
-child_ok{T}(w::Lift{T}) = T <: Widget
+child_ok{T}(w::Signal{T}) = T <: Widget
 
 init_child(w::Widget,this::Widget) = this
-function init_child{T<:Widget}(child::Lift{T},this::Widget)
+function init_child{T<:Widget}(child::Signal{T},this::Widget)
     lift(child) do w
         w.ctx.parent = this
         if isdefined(this.ctx,:focuss)
@@ -972,11 +971,11 @@ end
 type ListWidget <: Widget
     item::Any
     draw_indicies::Bool
-    highlighted::Input{Any}
+    highlighted::Signal{Any}
     cur_top
     ctx::WidgetContext
     function ListWidget(item)
-        this = new(item,true,Input{Any}(start(item)),start(item),WidgetContext())
+        this = new(item,true,Signal(Any, start(item)),start(item),WidgetContext())
         lift(this.highlighted) do it
             invalidate(this)
         end

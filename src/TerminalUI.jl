@@ -230,7 +230,7 @@ const SIGWINCH = 28
 
 function monitor_resize(tty)
     last_size = Base.size(tty)
-    s = Input{Tuple{Int,Int}}(last_size)
+    s = Signal(Tuple{Int,Int}, last_size)
     signal = TerminalUI.SignalListener(TerminalUI.SIGWINCH)
     @schedule while true
         # First check if the terminal size changed on us while
@@ -267,8 +267,8 @@ function parse_terminal_reply(stream)
     end
 end
 
-invalidated = Input{Any}(nothing)
-invalidated2 = Input{Any}(nothing)
+invalidated = Signal(Any, nothing)
+invalidated2 = Signal(Any, nothing)
 
 include("focus.jl")
 include("render.jl")
