@@ -229,7 +229,7 @@ end
 const SIGWINCH = 28
 
 function monitor_resize(tty)
-    last_size = Base.size(tty)
+    last_size = Base.displaysize(tty)
     s = Signal(Tuple{Int,Int}, last_size)
     signal = TerminalUI.SignalListener(TerminalUI.SIGWINCH)
     @schedule while true
@@ -239,10 +239,10 @@ function monitor_resize(tty)
         # case the signal would have been delivered with nobody
         # waiting for it. If this condition is true, we are guaranteed
         # that any resize will at least ping the event loop again.
-        if Base.size(tty) == last_size
+        if Base.displaysize(tty) == last_size
             wait(signal)
         end
-        last_size = Base.size(tty)
+        last_size = Base.displaysize(tty)
         push!(s,last_size)
     end
     s

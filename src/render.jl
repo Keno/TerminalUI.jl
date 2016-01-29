@@ -9,7 +9,7 @@ import VT100: get_image_cell, pos_for_image_cell
 using Colors
 using FixedPointNumbers
 
-typealias RGB8 RGB{Ufixed8}
+typealias RGB8 RGB{UFixed8}
 
 import Base: ==, hash
 
@@ -181,14 +181,15 @@ const colorlist = Dict(
 )
 
 # Will be filled in in swrite write previous color
-ascellparams(color::Void) = (0,RGB8(0,0,0))
-ascellparams(symbol::Symbol) = (colorlist[symbol],RGB8(0,0,0))
-ascellparams(c::Color)  = (0,convert(RGB8,c))
+ascellparams(color::Void) = (0,RGB8(0,0,0),false)
+ascellparams(symbol::Symbol) = (colorlist[symbol],RGB8(0,0,0),false)
+ascellparams(c::Color)  = (0,convert(RGB8,c),true)
 
 function dummycell(fg,bg,attrs = 0)
-    fg, fg_rgb = ascellparams(fg)
-    bg, bg_rgb = ascellparams(bg)
-    Cell(Char(0),0,fg,bg,attrs,fg_rgb,bg_rgb)
+    fg, fg_rgb, fg_is_rgb = ascellparams(fg)
+    bg, bg_rgb, bg_is_rgb = ascellparams(bg)
+    Cell(Char(0),0 | (fg_is_rgb ? FG_IS_RGB : 0) |
+        (bg_is_rgb ? BG_IS_RGB : 0),fg,bg,attrs,fg_rgb,bg_rgb)
 end
 
 function update_cell!(line,idx,dcell,char,fg,bg)
@@ -294,11 +295,11 @@ function do_move(buf,n)
     write(buf, CSI, string(n), 'C') # CUF
 end
 
-function change_color(buf, flags, color, rgb)
-    if flags & FG_IS_256 != 0
-        write(buf,"38;5;",string(color))
-    elseif flags & FG_IS_RGB != 0
-        write(buf,"38;2;",string(rgb.r.i),';',
+function change_color(buf, flags, color, rgb, is_256, is_rgb)
+    if (flags & is_256) != 0
+        write(buf,"8;5;",string(color))
+    elseif (flags & is_rgb) != 0
+        write(buf,"8;2;",string(rgb.r.i),';',
                           string(rgb.g.i),';',
                           string(rgb.b.i))
     else
@@ -309,12 +310,12 @@ end
 
 function change_fg_color(buf, cell)
     write(buf,CSI,'3')
-    change_color(buf, cell.flags, cell.fg, cell.fg_rgb)
+    change_color(buf, cell.flags, cell.fg, cell.fg_rgb, FG_IS_256, FG_IS_RGB)
 end
 
 function change_bg_color(buf, cell)
     write(buf,CSI,'4')
-    change_color(buf, cell.flags, cell.bg, cell.bg_rgb)
+    change_color(buf, cell.flags, cell.bg, cell.bg_rgb, BG_IS_256, BG_IS_RGB)
 end
 
 function change_attrs(buf, want, have)
@@ -459,6 +460,11 @@ function render(s::DoubleBufferedTerminalScreen)
                 end
                 attributestate = render_cell(buf,wantc,attributestate)
             end
+        end
+        # If there was a move, we're not at the end of the line, so we need an
+        # explit newline
+        if nmove != 0
+            write(buf,'\n')
         end
     end
     change_attrs(buf,0,0xFF)

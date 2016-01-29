@@ -498,7 +498,7 @@ function draw_element_line(s::Screen, d::CellDisplay, row)
     ncells = min(width(s),length(d.rows[row]))
     for col in 1:ncells
         c = d.rows[row][col]
-        swrite(s, row, col, c)
+        swrite(s, 1, col, c)
     end
     return 1
 end
