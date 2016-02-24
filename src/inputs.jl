@@ -5,7 +5,7 @@ immutable Query{T}
     w::Widget
 end
 
-function call(::Type{Query{Int}})
+function (::Type{Query{Int}})()
     t = TextInput(IOBuffer(copy(b"1234"),true,true))
     t.optheight = 1
     Query{Int}(t)
@@ -16,7 +16,7 @@ function on_done(f::Function,i::Query{Int})
 end
 
 
-function call(::Type{Query{AbstractString}})
+function (::Type{Query{AbstractString}})()
     t = TextInput()
     t.optheight = 1
     Query{AbstractString}(t)

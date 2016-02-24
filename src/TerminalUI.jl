@@ -66,10 +66,6 @@ using Reactive
 abstract Widget
 abstract Screen
 
-function draw(s::Screen,w::Widget)
-    error("Unimplemented draw for screen `$(typeof(s))` and widget `$(typeof(w))`")
-end
-
 function draw(::Screen,::Void)
 end
 
