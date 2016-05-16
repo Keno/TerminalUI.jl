@@ -614,7 +614,7 @@ element_done(view::IOBufferView,range) = range == 0:-1
 function draw_element_line(s::Screen, input::IOBufferView, offsets)
     cols = width(s)
     buf = buffer(input)
-    text = UTF8String(buf.data)
+    text = @compat(String)(buf.data)
     buf_pos = position(buf)
     curs_pos = buf_pos+1
     row = 1
