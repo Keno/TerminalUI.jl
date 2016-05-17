@@ -2,6 +2,8 @@ VERSION >= v"0.4.0-dev+6641" && __precompile__()
 
 module TerminalUI
 
+using Compat
+
 import Base.Terminals: width, height,
     cmove, cmove_col, cmove_line_up, cmove_line_down,
     cmove_up, cmove_down, UnixTerminal, CSI
