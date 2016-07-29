@@ -3,7 +3,7 @@ using TerminalUI; using VT100
 const thisdir = dirname(@__FILE__)
 
 function test_against(em,file)
-    output = open(readbytes,joinpath(thisdir,file))
+    output = open(read,joinpath(thisdir,file))
     buf = IOBuffer()
     VT100.dump(buf,DevNull,em)
     outbuf = takebuf_array(buf)
