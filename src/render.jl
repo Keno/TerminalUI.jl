@@ -39,7 +39,7 @@ typealias LocOrRect Union{CellLoc,CellRect}
 ==(x::LocOrRect,y::Tuple{Int,Int}) = x == (typeof(x))(y...)
 ==(x::Tuple{Int,Int},y::LocOrRect) = (typeof(y))(x...) == y
 
-getindex(x::LocOrRect,i) = x.(i)
+getindex(x::LocOrRect,i) = getfield(x, i)
 
 # Used to minimize the number of characters to be written.
 # The written characters themselves still have to be buffered,
