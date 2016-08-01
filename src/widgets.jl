@@ -820,9 +820,11 @@ Base.println(t::TextInput) = error()
 # REPLWidget
 import Base: LineEdit
 import Base.LineEdit: ModalInterface
-import Base.REPL: AbstractREPL, MIRepl
+import Base.REPL: AbstractREPL
 
-if !isdefined(Base.REPL,:MIRepl)
+if isdefined(Base.REPL,:MIRepl)
+    import Base.REPL.MIRepl
+else
     const MIRepl = Base.REPL.LineEditREPL
 end
 

@@ -3,7 +3,7 @@
 
 function prepare_display_file(buf;filename="Unnamed file", size=nothing, width=nothing, height=nothing, preserveAspectRatio::Bool=true, inline::Bool=false)
     q = "\e]1337;File="
-    options = ASCIIString[]
+    options = String[]
     filename != "Unnamed file" && push!(options,"name=" * base64encode(filename))
     size !== nothing && push!(options,"size=" * dec(size))
     height !== nothing && push!(options,"height=" * dec(height))

@@ -69,7 +69,7 @@ function form(questions; style = :incremental)
         end
     end
     f = Form(questions,ScrollableChain(widgets),
-        [k => i for (i,(k,_)) in enumerate(questions)],
+        Dict(k => i for (i,(k,_)) in enumerate(questions)),
         Dict{Symbol,Any}())
     for (k,q) in questions
         on_done(q.input) do v
