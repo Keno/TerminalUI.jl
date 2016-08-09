@@ -461,11 +461,6 @@ function render(s::DoubleBufferedTerminalScreen)
                 attributestate = render_cell(buf,wantc,attributestate)
             end
         end
-        # If there was a move, we're not at the end of the line, so we need an
-        # explit newline
-        if nmove != 0
-            write(buf,'\n')
-        end
     end
     change_attrs(buf,0,0xFF)
     buf
