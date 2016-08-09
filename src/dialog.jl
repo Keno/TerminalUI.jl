@@ -120,14 +120,14 @@ function wait(i::Union{FullScreenDialog,InlineDialog})
     end
 end
 
-function close(d::Union{FullScreenDialog,InlineDialog})    
+function close(d::Union{FullScreenDialog,InlineDialog})
     if !istaskdone(d.t)
         schedule(d.t, InterruptException(), error = true)
         wait(d.t)
     end
 end
 
-function print_snapshot(i)    
+function print_snapshot(i)
     full = isa(i,FullScreenDialog)
     local s = setup_screen(i)
     t = i.t = create_input_loop(i.w.ctx.focuss,i.tty,s)

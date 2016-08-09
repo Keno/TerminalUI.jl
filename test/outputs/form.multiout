@@ -1,0 +1,50 @@
+++++++++++++++++++++++++++++++++++++++++++++++++++++++
+|[?] Enter your name:  
+|
+|
+|
+------------------------------------------------------
+|ABACAAAAAAAAAAAAAAAACD
+|
+|
+|
+++++++++++++++++++++++++++++++++++++++++++++++++++++++
+|[?] Enter your name: The 
+|
+|
+|
+------------------------------------------------------
+|ABACAAAAAAAAAAAAAAAACAAAD
+|
+|
+|
+++++++++++++++++++++++++++++++++++++++++++++++++++++++
+|[?] Enter your name: The Wizard
+|[?] Enter your address:  
+|
+|
+------------------------------------------------------
+|ABACAAAAAAAAAAAAAAAACDDDDDDDDDD
+|ABACAAAAAAAAAAAAAAAAAAACE
+|
+|
+++++++++++++++++++++++++++++++++++++++++++++++++++++++
+|[?] Enter your name: The Wizard
+|[?] Enter your address: Oz
+|[?] Enter your age: 1234
+|
+------------------------------------------------------
+|ABACAAAAAAAAAAAAAAAACDDDDDDDDDD
+|ABACAAAAAAAAAAAAAAAAAAACDD
+|ABACAAAAAAAAAAAAAAACEAAA
+|
+++++++++++++++++++++++++++++++++++++++++++++++++++++++
+|[?] Enter your name: The Wizard
+|[?] Enter your address: Oz
+|[?] Enter your age: 101234
+|
+------------------------------------------------------
+|ABACAAAAAAAAAAAAAAAACDDDDDDDDDD
+|ABACAAAAAAAAAAAAAAAAAAACDD
+|ABACAAAAAAAAAAAAAAACAAEAAA
+|

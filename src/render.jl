@@ -168,21 +168,9 @@ function resize!(s::DoubleBufferedTerminalScreen,size)
     error("DoubleBufferedTerminalScreen cannot be resized. Create a new screen instead")
 end
 
-const colorlist = Dict(
-    :black      => 0,
-    :red        => 1,
-    :green      => 2,
-    :yellow     => 3,
-    :blue       => 4,
-    :magenta    => 5,
-    :cyan       => 6,
-    :white      => 7,
-    :default    => 9
-)
-
 # Will be filled in in swrite write previous color
 ascellparams(color::Void) = (0,RGB8(0,0,0),false)
-ascellparams(symbol::Symbol) = (colorlist[symbol],RGB8(0,0,0),false)
+ascellparams(symbol::Symbol) = (VT100.colorlist[symbol],RGB8(0,0,0),false)
 ascellparams(c::Color)  = (0,convert(RGB8,c),true)
 
 function dummycell(fg,bg,attrs = 0)

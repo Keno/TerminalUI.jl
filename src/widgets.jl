@@ -611,6 +611,7 @@ element_done(view::IOBufferView,range) = range == 0:-1
 #   A) Calculating movement commands
 #   B) Worry About the Prompt
 #   C) Position the actual cursor correctly
+# `offsets` are offsets into the IOBuffer
 function draw_element_line(s::Screen, input::IOBufferView, offsets)
     cols = width(s)
     buf = buffer(input)
@@ -627,7 +628,7 @@ function draw_element_line(s::Screen, input::IOBufferView, offsets)
         iscurs = (offset == curs_pos) && input.do_show_cursor
         #@assert !iscurs
         c = parse_cell!(em,buf)
-        if (c.content == '\0') || position(buf)+1 > last(offsets)
+        if (c.content == '\0')
             break
         end
         # For now, just consider a tabstop every 4 cells
@@ -636,7 +637,9 @@ function draw_element_line(s::Screen, input::IOBufferView, offsets)
             swrite(s, row, col:(nexttab-1), Cell(c,content=' '))
             col = nexttab
         else
-            swrite(s, row, col, c)
+            swrite(s, row, col, Cell(Cell(c),
+                fg = iscurs ? :black : :default,
+                bg = iscurs ? :white : :default))
             col += 1
         end
         if col == cols+1
@@ -644,6 +647,7 @@ function draw_element_line(s::Screen, input::IOBufferView, offsets)
             col = 1
             justwrapped = true
         end
+        offset = nextind(text,offset)
     end
     seek(buffer(input),buf_pos)
     lastoffset = offset
