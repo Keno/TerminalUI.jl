@@ -26,7 +26,7 @@ function compare(em, output, decorator = nothing)
     println(String(decoratorbuf))
     _compare(output, outbuf) || return false
     decorator === nothing && return true
-    _compare(decoratorbuf, decorator)
+    _compare(decorator, decoratorbuf)
 end
 
 function test_against(em,file)
@@ -80,9 +80,9 @@ function interact(w, inputs, file)
     em = VT100.ScreenEmulator()
     TerminalUI.focus(i.w)
 
-    @test do_compare(em, i, s, outputs[1], decorators[1])
     (length(decorators) < length(outputs)) &&
         (decorators = Any[decorators; Vector{Void}(length(outputs))])
+    @test do_compare(em, i, s, outputs[1], decorators[1])
     @assert length(outputs) >= length(inputs)+1
     # Run over inputs
     for (input, output, decorator) in zip(inputs, outputs[2:end], decorators[2:end])
@@ -114,4 +114,11 @@ let
          :age => ask("Enter your age:", Int)
        ],style = :incremental);
     interact(myform.chain, ["The"," Wizard\n","Oz\n","10"], "outputs/form.multiout")
+end
+
+# Test simple list
+let
+    fruit = ["Apple","Pear","Kiwi"]
+    w = ListWidget(fruit)
+    interact(w, ["\e[B","\e[B"], "outputs/list.multiout")
 end

@@ -977,18 +977,19 @@ end
 type ListWidget <: Widget
     item::Any
     draw_indicies::Bool
+    highlight_idx::Int
     highlighted::Signal{Any}
     cur_top
     ctx::WidgetContext
     function ListWidget(item)
-        this = new(item,true,Signal(Any, start(item)),start(item),WidgetContext())
-        lift(this.highlighted) do it
+        this = new(item,true,start(item),Signal(Any, start(item)),start(item),WidgetContext())
+        map(this.highlighted) do it
             invalidate(this)
         end
         this
     end
 end
-optheight(l::ListWidget) = 10
+optheight(l::ListWidget) = isa(Base.iteratorsize(l.item),Union{Base.HasLength,Base.HasShape}) ? length(l.item) : 10
 cur_top(l::ListWidget) = l.cur_top
 isscrollable(l::ListWidget) = true
 
@@ -1006,7 +1007,7 @@ function draw_element_line(s::Screen, l::ListWidget, it)
         draw(subscreen(s,1:height(s),2:(2+maxwidth)),Label(sprint(print,it)))
         s = subscreen(s,1:height(s),(4+maxwidth):width(s))
     end
-    highlight = l.highlighted.value == it
+    highlight = l.highlight_idx == it
     clear(s)
     if highlight
         swrite(s, 1:height(s), 1:width(s), ' ', fg = :black, bg = :yellow)
@@ -1033,14 +1034,18 @@ end
 
 keymap(l::ListWidget) = Dict(
     "\e[A"      => (s,p,c)->begin
-        if l.highlighted.value != element_start(l)
-            push!(l.highlighted, element_prev(l, l.highlighted.value))
+        if l.highlight_idx != element_start(l)
+            l.highlight_idx = element_prev(l, l.highlight_idx)
+            push!(l.highlighted, l.highlight_idx)
+            invalidate(l)
         end
     end,
     "\e[B"      => (s,p,c)->begin
-        it = element_next(l, l.highlighted.value)
+        it = element_next(l, l.highlight_idx)
         if !element_done(l, it)
+            l.highlight_idx = it
             push!(l.highlighted, it)
+            invalidate(l)
         end
     end
 )
