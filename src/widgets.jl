@@ -557,7 +557,7 @@ function didwrite(view::IOBufferView,at,nmoved)
         sizeof(view.buf.data)-nmoved == last(view.cur_top))
         # Naively, we'd just have to add nmoved to the end, but we may have
         # writeen one or more newlines, so we need to look for that
-        idx = findnext(view.buf.data,'\n',at)
+        idx = findnext(view.buf.data,UInt8('\n'),at)
         start = first(view.cur_top)
         view.cur_top = (start == 0 ? 1 : start):(idx == 0 ? endof(view.buf.data) : idx-1)
     end
@@ -584,7 +584,7 @@ function element_next(view::IOBufferView, cur_range)
     end
     # Cur range will have ended on the character before a \n, so the point
     # to start searching is the character after the \n (i.e. +2)
-    idx = findnext(view.buf.data,'\n',last(cur_range)+2)
+    idx = findnext(view.buf.data,UInt8('\n'),last(cur_range)+2)
     if idx == 0
         # The last line is empty
         if !view.draw_empty_last_line &&
