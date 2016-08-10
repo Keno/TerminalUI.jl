@@ -2,7 +2,7 @@
 import Base: start, next, done, getindex, length, show
 import Base.LineEdit: KeyAlias, AnyDict
 
-export Border, ListWidget, WidgetStack, IOBufferView
+export Border, ListWidget, WidgetStack, IOBufferView, MenuWidget
 
 typealias LazyWidget Union{Widget,Signal}
 value(w::Widget) = w
@@ -1048,4 +1048,33 @@ keymap(l::ListWidget) = Dict(
             invalidate(l)
         end
     end
+)
+
+# Like a list Widget, but one of the items can be selected (has an on_done callback),
+# and selections can be made by numeric entry
+type MenuWidget <: Widget
+    on_done::Any
+    list_widget::ListWidget
+    ctx::WidgetContext
+    function MenuWidget(on_done, item)
+        new(on_done, ListWidget(item),WidgetContext())
+    end
+end
+children(w::MenuWidget) = (w.list_widget,)
+focusable(w::MenuWidget) = true
+focus(w::MenuWidget) = focus(w.list_widget)
+isscrollable(W::MenuWidget) = true
+cur_top(w::MenuWidget) = cur_top(w.list_widget)
+optheight(w::MenuWidget) = optheight(w.list_widget)
+
+element_start(l::MenuWidget) = element_start(l.list_widget)
+element_next(l::MenuWidget,it) = element_next(l.list_widget,it)
+element_prev(l::MenuWidget,it) = element_prev(l.list_widget,it)
+element_done(l::MenuWidget,it) = element_done(l.list_widget,it)
+
+draw_element_line(s::Screen, l::MenuWidget, it) =
+    draw_element_line(s, l.list_widget, it)
+
+keymap(widget::MenuWidget) = Dict(
+    '\r' => (s,p,c) -> widget.on_done(widget.list_widget.highlight_idx)
 )

@@ -4,12 +4,13 @@ type FocusState
     stack::Vector{Widget}
     keymap
 end
-FocusState() = FocusState(Vector{Widget}(),Base.LineEdit.keymap([root_keymap]))
+FocusState() = FocusState(Vector{Widget}(),nothing)
 
 type WidgetContext
     visible::Bool
     parent
     focuss
+    dialog
     WidgetContext(visible::Bool) = new(visible)
 end
 WidgetContext() = WidgetContext(true)
@@ -19,13 +20,13 @@ makevisible(w::Widget) = w.ctx.visible = true
 
 parentwidget(w::Widget) = w.ctx.parent
 
-const root_keymap = Dict(
+root_keymap(tty) = Dict(
     "^C" => (s,p,c) -> (return :done),
     # Mouse Tracking
     "\e[M" => (topscreen,o...)->begin
-        a = read(STDIN,Char)
-        b = read(STDIN,Char)
-        c = read(STDIN,Char)
+        a = read(tty,Char)
+        b = read(tty,Char)
+        c = read(tty,Char)
         dispatch_mouse(topscreen,map(x->x-32,map(Int,(a,b,c)))...)
     end,
     "\e\x7f" => KeyAlias("\e\b"),
@@ -38,7 +39,7 @@ const root_keymap = Dict(
     # Ctrl-Right Arrow on rxvt
     "\eOc" => KeyAlias("\ef"),
     # Terminal queries
-    "\e[?" => (args...)->parse_terminal_reply(STDIN),
+    "\e[?" => (args...)->parse_terminal_reply(tty),
     # Force Redraw
     "^L" => (topscreen,o...)->(clear(topscreen);invalidate(topscreen)),
     # Tab
@@ -71,7 +72,7 @@ function focus(s::FocusState, w::Widget)
     end
     append!(s.stack,newstack)
     # TODO: If this takes too long, cache intermediate results
-    s.keymap = Base.LineEdit.keymap(vcat(Dict[keymap(widget) for widget in reverse(s.stack)],Dict[root_keymap]))
+    s.keymap = Base.LineEdit.keymap(vcat(Dict[keymap(widget) for widget in reverse(s.stack)],Dict[root_keymap(w.ctx.dialog.tty)]))
     s
 end
 
@@ -84,6 +85,8 @@ function focus_child(w::Widget)
     end
     focus(w.ctx.focuss,w)
 end
+
+invalidate(w::Widget) = isdefined(w,:ctx) && isdefined(w.ctx,:dialog) && invalidate(w.ctx.dialog)
 
 focus(w::Widget) = focus(w.ctx.focuss,w)
 isfocused(w::Widget) = w in w.ctx.focuss.stack
@@ -98,10 +101,6 @@ function initialize!(w; parent = nothing, focuss = FocusState())
     for c in children(w)
         initialize!(c, parent = w, focuss = focuss)
     end
-end
-
-function invalidate(w::Widget)
-    push!(invalidated,w)
 end
 
 const KEY_SCROLL = 64

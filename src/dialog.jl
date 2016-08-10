@@ -4,8 +4,10 @@ export FullScreenDialog
 type InlineDialog
     w::Widget
     tty
+    was_invalidated::Bool
     t
-    InlineDialog(w::Widget,tty) = new(w,tty)
+    do_redraw
+    InlineDialog(w::Widget,tty) = new(w,tty,false)
 end
 
 function enable_settings(tty; query_cursor = false)
@@ -27,17 +29,21 @@ end
 type FullScreenDialog
     w::Widget
     tty
+    was_invalidated::Bool
     t
-    FullScreenDialog(w::Widget,tty) = new(w,tty)
+    do_redraw
+    FullScreenDialog(w::Widget,tty) = new(w,tty,false)
 end
+invalidate(dialog::Union{InlineDialog, FullScreenDialog}) = dialog.was_invalidated = true
 
-function create_input_loop(focuss,tty,s)
+function create_input_loop(i,tty,s)
     @schedule begin
         try
             result = :ok
             # eof needs to go second here, because it may block
-            while result != :done && !eof(STDIN)
-                result = Base.LineEdit.match_input(focuss.keymap,nothing,tty)(s,nothing)
+            while result != :done && !eof(tty)
+                result = Base.LineEdit.match_input(i.w.ctx.focuss.keymap,nothing,tty)(s,nothing)
+                i.was_invalidated && i.do_redraw()
             end
         catch e
             if !isa(e,InterruptException)
@@ -72,9 +78,18 @@ function debug(w::Widget, emdebug = false)
     em
 end
 
+function set_widget_dialog!(w, i)
+    !isdefined(w, :ctx) && return
+    w.ctx.dialog = i
+    for nw in children(w)
+        set_widget_dialog!(nw, i)
+    end
+end
+
 function setup_screen(i)
     full = isa(i,FullScreenDialog)
     TerminalUI.initialize!(i.w)
+    set_widget_dialog!(i.w, i)
     local s
     if full
         s = TerminalUI.DoubleBufferedTerminalScreen(Base.displaysize(i.tty))
@@ -88,24 +103,25 @@ end
 function wait(i::Union{FullScreenDialog,InlineDialog})
     full = isa(i,FullScreenDialog)
     local s = setup_screen(i)
-    t = i.t = create_input_loop(i.w.ctx.focuss,i.tty,s)
+    t = i.t = create_input_loop(i,i.tty,s)
     try
-        function do_redraw(args...)
+        i.do_redraw = function(args...)
             redraw(s,i.w)
             render(i.tty.out_stream,s)
         end
         enable_settings(i.tty; query_cursor = !full)
+        focus(i.w)
         if !full
+            println("Waiting for cursor position")
             wait(TerminalUI.curspos_condition)
+            println("Done")
             pos = TerminalUI.curspos
             # Leave 1 line between the prompt and the dialog, otherwise it looks
             # squished.
             s.offset = (pos[1]+1,pos[2])
             s.fullsize = Base.displaysize(i.tty)
         end
-        focus(i.w)
-        map(size->(resized(s,size); do_redraw()),monitor_resize(i.tty))
-        map(w->do_redraw(),TerminalUI.invalidated)
+        map(size->(resized(s,size); i.do_redraw()),monitor_resize(i.tty))
         map((args...)->render(i.tty.out_stream,s),TerminalUI.invalidated2)
         wait(t)
         afterembed(i.tty.out_stream,s)
@@ -120,17 +136,25 @@ function wait(i::Union{FullScreenDialog,InlineDialog})
     end
 end
 
+function change_widget!(i::Union{FullScreenDialog,InlineDialog}, w)
+    i.w = w
+    TerminalUI.initialize!(i.w)
+    set_widget_dialog!(i.w, i)
+    focus(i.w)
+    invalidate(i.w)
+    i.do_redraw()
+end
+
 function close(d::Union{FullScreenDialog,InlineDialog})
     if !istaskdone(d.t)
-        schedule(d.t, InterruptException(), error = true)
-        wait(d.t)
+        Base.throwto(d.t, InterruptException())
     end
 end
 
 function print_snapshot(i)
     full = isa(i,FullScreenDialog)
     local s = setup_screen(i)
-    t = i.t = create_input_loop(i.w.ctx.focuss,i.tty,s)
+    t = i.t = create_input_loop(i,i.tty,s)
     try
         enable_settings(i.tty; query_cursor = !full)
         if !full
