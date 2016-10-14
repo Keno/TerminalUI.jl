@@ -1,3 +1,3 @@
 *.in text eol=lf
-*.out text eof=lf
-*.multiout text eof=lf
+*.out text eol=lf
+*.multiout text eol=lf
