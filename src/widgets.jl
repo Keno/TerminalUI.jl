@@ -4,7 +4,7 @@ import Base.LineEdit: KeyAlias, AnyDict
 
 export Border, ListWidget, WidgetStack, IOBufferView, MenuWidget
 
-typealias LazyWidget Union{Widget,Signal}
+const LazyWidget = Union{Widget,Signal}
 value(w::Widget) = w
 
 # Defaults
@@ -27,7 +27,7 @@ optheight{T<:Widget}(l::Signal{T}) = optheight(value(l))
 focus{T<:Widget}(l::Signal{T}) = focus(value(l))
 
 # ScrollableWidget
-abstract ScrollableWidget <: Widget
+@compat abstract type ScrollableWidget <: Widget end
 isscrollable(w::ScrollableWidget) = true
 cur_start_line(w::ScrollableWidget) = 1
 
@@ -75,7 +75,7 @@ type SimpleSlider{T} <: Widget
     val::Signal{T}
     last_sliderwidth::Int
     ctx::WidgetContext
-    SimpleSlider(min::T,max::T,val::T) = new(min,max,Signal(T, val),0)
+    (::Type{SimpleSlider{T}}){T}(min::T,max::T,val::T) = new{T}(min,max,Signal(T, val),0)
 end
 optheight(s::SimpleSlider) = 1
 
@@ -135,7 +135,7 @@ type Gauge{T} <: Widget
     max::T
     val::T
     ctx::Void
-    Gauge(min,max,val) = new(min,max,val)
+    (::Type{Gauge{T}}){T}(min,max,val) = new{T}(min,max,val)
 end
 Gauge{T}(min::T,max::T,val::T) = Gauge{T}(min,max,val)
 
@@ -443,7 +443,7 @@ function compute_widths(rl::RowLayout,totalwidth)
             totalfixed += rl.fixedwidths[i]
         end
     end
-    widths = Array(UnitRange,0)
+    widths = Array{UnitRange}(0)
     sizehint!(widths,length(rl.cols))
     for i = eachindex(rl.cols)
         c = rl.cols[i]
@@ -721,7 +721,7 @@ function keymap(w::TextInput)
     d = AnyDict(
     # Enter
     '\r' => (s,o...)->begin
-        line = takebuf_string(copy(buffer(w)))
+        line = String(take!(copy(buffer(w))))
         if w.on_enter(line)
             w.on_done(line)
         end
@@ -863,7 +863,7 @@ end
 
 function write_history(repl::WidgetREPL, tempbuf::IOBuffer)
     pos = position(repl.historybuf)+1
-    didwrite(repl.historyview,pos,write(repl.historybuf,takebuf_array(tempbuf)))
+    didwrite(repl.historyview,pos,write(repl.historybuf,take!(tempbuf)))
 end
 
 function display(d::WidgetREPLDisplay, ::MIME"text/plain", x)

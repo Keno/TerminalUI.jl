@@ -33,7 +33,7 @@ for mime in iterm2_mimes
             pipe = Base64EncodePipe(buf)
             writemime(pipe,m,x)
             close(pipe)
-            write(STDOUT, takebuf_array(buf))
+            write(STDOUT, take!(buf))
             write(STDOUT,'\a')
         end
     end

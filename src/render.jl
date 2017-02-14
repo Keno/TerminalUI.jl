@@ -4,12 +4,10 @@ import Base: getindex, convert, show
 using VT100.Flags
 using VT100.Attributes
 
-import VT100: get_image_cell, pos_for_image_cell
+import VT100: get_image_cell, pos_for_image_cell, RGB8
 
 using Colors
 using FixedPointNumbers
-
-typealias RGB8 RGB{UFixed8}
 
 import Base: ==, hash
 
@@ -34,7 +32,7 @@ end
 ==(x::CellBox, y::CellBox) = x.topleft == y.topleft && x.size == y.size
 
 
-typealias LocOrRect Union{CellLoc,CellRect}
+const LocOrRect = Union{CellLoc,CellRect}
 
 ==(x::LocOrRect,y::Tuple{Int,Int}) = x == (typeof(x))(y...)
 ==(x::Tuple{Int,Int},y::LocOrRect) = (typeof(y))(x...) == y
@@ -464,5 +462,5 @@ function afterembed(io::IO,s::DoubleBufferedTerminalScreen)
 end
 
 function render(io::IO,s::DoubleBufferedTerminalScreen)
-    write(io,takebuf_array(render(s)))
+    write(io,take!(render(s)))
 end

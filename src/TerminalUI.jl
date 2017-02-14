@@ -65,8 +65,8 @@ cmove(t::UnixTerminal,row,col) = write(t.out_stream,"$(CSI)$(row);$(col)H")
 
 using Reactive
 
-abstract Widget
-abstract Screen
+@compat abstract type Widget end
+@compat abstract type Screen end
 
 function draw(::Screen,::Void)
 end
@@ -76,7 +76,7 @@ end
 
 # subsreen
 
-abstract Subscreen <: Screen
+@compat abstract type Subscreen <: Screen end
 istracking(s::Subscreen) = false
 
 immutable SimpleSubscreen <: Subscreen

@@ -53,7 +53,6 @@ function resized(size)
     # Throw away all state, since we have no idea what the resize did
     #global s = TerminalUI.DoubleBufferedTerminalScreen(size)
     TerminalUI.redraw(s,b)
-    #@show takebuf_string(TerminalUI.render(s))
     TerminalUI.render(STDOUT,s)
 end
 
@@ -61,7 +60,6 @@ end
 
 function redraw(args...)
     TerminalUI.redraw(s,b)
-    #@show takebuf_string(TerminalUI.render(s))
     TerminalUI.render(STDOUT,s)
 end
 
@@ -108,7 +106,7 @@ function plot_to_imgout(p)
        )
     end
     Compose.draw(png,p)
-    imgout.data = takebuf_array(buf)
+    imgout.data = take!(buf)
     if imgout.screenchar.content != 0
         push!(s.dropped, Int(imgout.screenchar.content) - 0xF0000)
     end
