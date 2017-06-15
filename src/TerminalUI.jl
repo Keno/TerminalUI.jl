@@ -248,7 +248,7 @@ end
 
 import VT100: readdec
 
-global curspos = (1,1)
+global curspos = (0,0)
 global curspos_condition = Condition()
 
 function parse_terminal_reply(stream)

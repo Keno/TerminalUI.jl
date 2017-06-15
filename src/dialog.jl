@@ -109,13 +109,13 @@ function wait(i::Union{FullScreenDialog,InlineDialog})
             redraw(s,i.w)
             render(i.tty.out_stream,s)
         end
+        global curspos
+        curspos = (0,0)
         enable_settings(i.tty; query_cursor = !full)
         focus(i.w)
         if !full
-            println("Waiting for cursor position")
-            wait(TerminalUI.curspos_condition)
-            println("Done")
-            pos = TerminalUI.curspos
+            curspos == (0,0) && wait(TerminalUI.curspos_condition)
+            pos = curspos
             # Leave 1 line between the prompt and the dialog, otherwise it looks
             # squished.
             s.offset = (pos[1]+1,pos[2])
